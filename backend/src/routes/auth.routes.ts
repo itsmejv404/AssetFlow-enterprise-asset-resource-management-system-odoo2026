@@ -8,6 +8,7 @@ import { Employee } from '../entities/Employee';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import { signAuthToken } from '../auth/jwt';
 import { mailer } from '../utils/mailer';
+import { logAudit } from '../utils/audit';
 
 export const authRouter = Router();
 
@@ -125,6 +126,14 @@ authRouter.post('/login', async (req, res) => {
 
   employee.user.lastLoginAt = new Date();
   await AppDataSource.getRepository(User).save(employee.user);
+
+  await logAudit(
+    employee.id,
+    'LOGIN',
+    'User',
+    employee.user.id,
+    { email: employee.user.email }
+  );
 
   const token = signAuthToken({
     employeeId: employee.id,

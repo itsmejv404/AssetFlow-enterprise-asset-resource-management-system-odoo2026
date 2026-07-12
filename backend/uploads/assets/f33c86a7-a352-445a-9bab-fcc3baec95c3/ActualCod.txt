@@ -1,0 +1,229 @@
+#include <windows.h>
+#include <GL/glut.h>
+#include <vector>
+
+// ===================== WINDOW =====================
+int width = 800, height = 400;
+
+// ===================== PLAYER =====================
+float px = 60, py = 50;
+float pw = 30, ph = 40;
+float pdx = 0, pdy = 0;
+float gravity = -0.8f;
+bool grounded = false;
+bool lastDirection = true;
+
+bool leftKey = false, rightKey = false, jumpKey = false, shootKey = false;
+
+int playerHealth = 5;
+
+// ===================== PLATFORM =====================
+struct Platform { float x, y, w, h; };
+std::vector<Platform> platforms;
+
+// ===================== BULLET =====================
+struct Bullet { float x, y, dx; bool active; };
+std::vector<Bullet> playerBullets;
+std::vector<Bullet> enemyBullets;
+
+// ===================== ENEMY =====================
+struct Enemy {
+    float x, y, w, h;
+    float shootTimer;
+    bool alive;
+    bool dir;
+    float startX;
+};
+std::vector<Enemy> enemies;
+
+// ===================== DRAW HELPERS =====================
+void drawRect(float x, float y, float w, float h, float r, float g, float b)
+{
+    glColor3f(r, g, b);
+    glBegin(GL_QUADS);
+    glVertex2f(x,   y);
+    glVertex2f(x+w, y);
+    glVertex2f(x+w, y+h);
+    glVertex2f(x,   y+h);
+    glEnd();
+}
+
+// ===================== LOGIC =====================
+void initLevel()
+{
+    platforms.clear();
+    Platform p1 = {0, 0, 800, 30}; platforms.push_back(p1);
+    Platform p2 = {150, 100, 120, 20}; platforms.push_back(p2);
+    Platform p3 = {350, 180, 120, 20}; platforms.push_back(p3);
+    Platform p4 = {550, 260, 120, 20}; platforms.push_back(p4);
+
+    enemies.clear();
+    Enemy e1 = {200, 30, 30, 30, 0, true, true, 200}; enemies.push_back(e1);
+    Enemy e2 = {400, 200, 30, 30, 30, true, true, 400}; enemies.push_back(e2);
+}
+
+void resetGame()
+{
+    px = 60; py = 50; pdx = 0; pdy = 0;
+    playerHealth = 5;
+    playerBullets.clear();
+    enemyBullets.clear();
+    initLevel();
+}
+
+void update()
+{
+    if (leftKey)  { pdx = -4; lastDirection = false; }
+    else if (rightKey) { pdx = 4; lastDirection = true; }
+    else pdx = 0;
+
+    if (jumpKey && grounded) { pdy = 14; grounded = false; }
+
+    pdy += gravity;
+    px += pdx;
+    py += pdy;
+    grounded = false;
+
+    if (px < 0) px = 0;
+    if (px + pw > width) px = (float)width - pw;
+
+    for (int i = 0; i < (int)platforms.size(); i++) {
+        Platform& p = platforms[i];
+        if (px < p.x + p.w && px + pw > p.x && py < p.y + p.h && py + ph > p.y) {
+            if (pdy < 0) {
+                py = p.y + p.h;
+                pdy = 0;
+                grounded = true;
+            }
+        }
+    }
+
+    if (py < -50) { resetGame(); return; }
+
+    // Shooting
+    static int shootCooldown = 0;
+    if (shootKey && shootCooldown <= 0) {
+        Bullet b;
+        b.x = lastDirection ? px + pw : px;
+        b.y = py + ph/2;
+        b.dx = lastDirection ? 10.0f : -10.0f;
+        b.active = true;
+        playerBullets.push_back(b);
+        shootCooldown = 15;
+    }
+    if (shootCooldown > 0) shootCooldown--;
+
+    // Player Bullets
+    for (int i = 0; i < (int)playerBullets.size(); i++) {
+        if (!playerBullets[i].active) continue;
+        playerBullets[i].x += playerBullets[i].dx;
+        if (playerBullets[i].x < 0 || playerBullets[i].x > width) playerBullets[i].active = false;
+
+        for (int j = 0; j < (int)enemies.size(); j++) {
+            Enemy& e = enemies[j];
+            if (e.alive && playerBullets[i].x < e.x + e.w && playerBullets[i].x > e.x &&
+                playerBullets[i].y < e.y + e.h && playerBullets[i].y > e.y) {
+                playerBullets[i].active = false; e.alive = false;
+            }
+        }
+    }
+
+    // Enemy AI
+    for (int i = 0; i < (int)enemies.size(); i++) {
+        Enemy& e = enemies[i];
+        if (!e.alive) continue;
+        if (e.dir) { e.x += 2; if (e.x > e.startX + 60) e.dir = false; }
+        else { e.x -= 2; if (e.x < e.startX - 60) e.dir = true; }
+
+        e.shootTimer++;
+        if (e.shootTimer > 50) {
+            Bullet eb;
+            eb.x = e.x + e.w/2; eb.y = e.y + e.h/2;
+            eb.dx = (px > e.x) ? 5.0f : -5.0f;
+            eb.active = true;
+            enemyBullets.push_back(eb);
+            e.shootTimer = 0;
+        }
+    }
+
+    // Enemy Bullets - No Invincibility logic
+    for (int i = 0; i < (int)enemyBullets.size(); i++) {
+        Bullet& b = enemyBullets[i];
+        if (!b.active) continue;
+        b.x += b.dx;
+
+        // Collision check: if hit, reduce health immediately and kill bullet
+        if (b.x < px + pw && b.x > px && b.y < py + ph && b.y > py) {
+            b.active = false;
+            playerHealth--;
+            if (playerHealth <= 0) { resetGame(); return; }
+        }
+    }
+
+    if (px + pw > 740 && py + ph > 30) resetGame();
+}
+
+// ===================== DISPLAY =====================
+void display()
+{
+    glClear(GL_COLOR_BUFFER_BIT);
+    glLoadIdentity();
+
+    drawRect(0, 0, (float)width, (float)height, 0.5f, 0.8f, 1.0f);
+
+    for (int i = 0; i < (int)platforms.size(); i++)
+        drawRect(platforms[i].x, platforms[i].y, platforms[i].w, platforms[i].h, 0.4f, 0.2f, 0.0f);
+
+    drawRect(740, 30, 20, 60, 1.0f, 1.0f, 0.0f); // Goal
+
+    drawRect(px, py, pw, ph, 0.0f, 0.4f, 0.8f); // Player
+
+    for (int i = 0; i < (int)enemies.size(); i++)
+        if (enemies[i].alive) drawRect(enemies[i].x, enemies[i].y, enemies[i].w, enemies[i].h, 0.8f, 0.0f, 0.0f);
+
+    for (int i = 0; i < (int)playerBullets.size(); i++)
+        if (playerBullets[i].active) drawRect(playerBullets[i].x-2, playerBullets[i].y-2, 6, 6, 1, 1, 1);
+
+    for (int i = 0; i < (int)enemyBullets.size(); i++)
+        if (enemyBullets[i].active) drawRect(enemyBullets[i].x-2, enemyBullets[i].y-2, 6, 6, 1, 0, 0);
+
+    glutSwapBuffers();
+}
+
+void timer(int v) { update(); glutPostRedisplay(); glutTimerFunc(16, timer, 0); }
+
+void keyDown(unsigned char k, int x, int y) {
+    if (k == 'a' || k == 'A') leftKey = true;
+    if (k == 'd' || k == 'D') rightKey = true;
+    if (k == ' ') jumpKey = true;
+    if (k == 'f' || k == 'F') shootKey = true;
+}
+
+void keyUp(unsigned char k, int x, int y) {
+    if (k == 'a' || k == 'A') leftKey = false;
+    if (k == 'd' || k == 'D') rightKey = false;
+    if (k == ' ') jumpKey = false;
+    if (k == 'f' || k == 'F') shootKey = false;
+}
+
+int main(int argc, char** argv)
+{
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA);
+    glutInitWindowSize(width, height);
+    glutCreateWindow("Game");
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    gluOrtho2D(0, width, 0, height);
+    glMatrixMode(GL_MODELVIEW);
+
+    glutDisplayFunc(display);
+    glutKeyboardFunc(keyDown);
+    glutKeyboardUpFunc(keyUp);
+    glutTimerFunc(0, timer, 0);
+
+    initLevel();
+    glutMainLoop();
+    return 0;
+}
