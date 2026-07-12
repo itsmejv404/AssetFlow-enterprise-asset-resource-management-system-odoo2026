@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response } from 'express';
+import { NextFunction, Request, RequestHandler, Response } from 'express';
 import { EmployeeRole } from '../entities/Employee';
 import { verifyAuthToken } from '../auth/jwt';
 
@@ -21,7 +21,7 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export function requireRole(...allowedRoles: EmployeeRole[]) {
+export function requireRole(...allowedRoles: EmployeeRole[]): RequestHandler {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth) {
       res.status(401).json({ message: 'Unauthorized' });

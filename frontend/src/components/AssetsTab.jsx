@@ -9,7 +9,7 @@ export function AssetsTab({
   setEditingAssetCustomFields,
   managingAssetDocs,
   setManagingAssetDocs,
-  uploadFile,
+  _uploadFile,
   setUploadFile,
   assetForm,
   setAssetForm,

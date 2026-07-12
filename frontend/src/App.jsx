@@ -8,85 +8,8 @@ import { AllocationsTab } from './components/AllocationsTab'
 import { MaintenanceTab } from './components/MaintenanceTab'
 import { AuditsTab } from './components/AuditsTab'
 import { LogsTab } from './components/LogsTab'
-
-const AUTH_STORAGE_KEY = 'assetflow-auth'
-
-const ROLE_ROUTES = {
-  admin: {
-    path: '/admin/dashboard',
-    label: 'Admin Dashboard',
-    apiPath: '/api/dashboard/admin',
-  },
-  asset_manager: {
-    path: '/asset-manager/dashboard',
-    label: 'Asset Manager Dashboard',
-    apiPath: '/api/dashboard/asset-manager',
-  },
-  department_head: {
-    path: '/department-head/dashboard',
-    label: 'Department Head Dashboard',
-    apiPath: '/api/dashboard/department-head',
-  },
-  employee: {
-    path: '/employee/dashboard',
-    label: 'Employee Dashboard',
-    apiPath: '/api/dashboard/employee',
-  },
-}
-
-function roleToRoute(role) {
-  return ROLE_ROUTES[role]?.path ?? '/'
-}
-
-function roleToLabel(role) {
-  return ROLE_ROUTES[role]?.label ?? 'Dashboard'
-}
-
-function getStoredAuth() {
-  const rawValue = window.localStorage.getItem(AUTH_STORAGE_KEY)
-
-  if (!rawValue) {
-    return null
-  }
-
-  try {
-    return JSON.parse(rawValue)
-  } catch {
-    return null
-  }
-}
-
-function saveAuth(session) {
-  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session))
-}
-
-function clearAuth() {
-  window.localStorage.removeItem(AUTH_STORAGE_KEY)
-}
-
-async function apiRequest(path, options = {}, token) {
-  const headers = {
-    'Content-Type': 'application/json',
-    ...(options.headers ?? {}),
-  }
-
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-
-  const response = await fetch(path, {
-    ...options,
-    headers,
-  })
-
-  const data = await response.json().catch(() => null)
-
-  if (!response.ok) {
-    throw new Error(data?.message ?? 'Request failed')
-  }
-
-  return data
-}
+import { apiRequest } from './lib/api'
+import { clearAuth, getStoredAuth, ROLE_ROUTES, roleToLabel, roleToRoute, saveAuth } from './lib/auth'
 
 function LoginPage({ session, onLogin }) {
   const navigate = useNavigate()
@@ -95,6 +18,7 @@ function LoginPage({ session, onLogin }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (session?.user?.role) {
       navigate(roleToRoute(session.user.role), { replace: true })
@@ -475,6 +399,7 @@ function AdminDashboardView({ session, onLogout }) {
     }
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     setError('')
     setSuccess('')
@@ -776,7 +701,7 @@ function AdminDashboardView({ session, onLogout }) {
     }
   }
 
-  const handleRegisterAsset = async (e) => {
+  const handleCreateAsset = async (e) => {
     e.preventDefault()
     setError('')
     setSuccess('')
@@ -1151,11 +1076,13 @@ function AdminDashboardView({ session, onLogout }) {
               Audit Cycles
             </button>
           </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('logs')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'logs' ? 'bold' : 'normal' }}>
-              Audit Logs
-            </button>
-          </li>
+          {session.user.role === 'admin' && (
+            <li style={{ marginBottom: '10px' }}>
+              <button type="button" onClick={() => setTab('logs')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'logs' ? 'bold' : 'normal' }}>
+                Audit Logs
+              </button>
+            </li>
+          )}
         </ul>
         <hr />
         <p><Link to="/dashboard">Back to Dashboard Hub</Link></p>
@@ -1178,6 +1105,7 @@ function AdminDashboardView({ session, onLogout }) {
             handleUpdateDept={handleUpdateDept}
             handleDeactivateDept={handleDeactivateDept}
             handleDeleteDept={handleDeleteDept}
+            isAdmin={session.user.role === 'admin'}
           />
         )}
         {tab === 'categories' && (
@@ -1195,6 +1123,7 @@ function AdminDashboardView({ session, onLogout }) {
             handleUpdateCategory={handleUpdateCategory}
             handleDeactivateCategory={handleDeactivateCategory}
             handleDeleteCategory={handleDeleteCategory}
+            isAdmin={session.user.role === 'admin'}
           />
         )}
         {tab === 'employees' && (
@@ -1217,6 +1146,7 @@ function AdminDashboardView({ session, onLogout }) {
             handleReactivateEmployee={handleReactivateEmployee}
             handleDeleteEmployee={handleDeleteEmployee}
             handleChangeRole={handleChangeRole}
+            isAdmin={session.user.role === 'admin'}
           />
         )}
         {tab === 'assets' && (
@@ -1229,7 +1159,6 @@ function AdminDashboardView({ session, onLogout }) {
             setEditingAssetCustomFields={setEditingAssetCustomFields}
             managingAssetDocs={managingAssetDocs}
             setManagingAssetDocs={setManagingAssetDocs}
-            uploadFile={uploadFile}
             setUploadFile={setUploadFile}
             assetForm={assetForm}
             setAssetForm={setAssetForm}
@@ -1289,6 +1218,7 @@ function AdminDashboardView({ session, onLogout }) {
             handleStartAuditCycle={handleStartAuditCycle}
             handleAssignAuditors={handleAssignAuditors}
             handleCloseAuditCycle={handleCloseAuditCycle}
+            isAdmin={session.user.role === 'admin'}
           />
         )}
         {tab === 'logs' && <LogsTab logs={logs} />}
@@ -1302,6 +1232,7 @@ function DashboardPage({ session, onLogout, role }) {
   const [dashboardData, setDashboardData] = useState(null)
   const [error, setError] = useState('')
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!session?.token) {
       return
@@ -1351,8 +1282,16 @@ function DashboardPage({ session, onLogout, role }) {
     return <Navigate to={roleToRoute(session.user.role)} replace />
   }
 
-  if (role === 'admin') {
+  if (role === 'admin' || role === 'asset_manager') {
     return <AdminDashboardView session={session} onLogout={onLogout} />
+  }
+
+  if (role === 'department_head') {
+    return <DepartmentHeadDashboardView session={session} onLogout={onLogout} />
+  }
+
+  if (role === 'employee') {
+    return <EmployeeDashboardView session={session} onLogout={onLogout} />
   }
 
   return (
@@ -1457,6 +1396,1582 @@ function App() {
     <BrowserRouter>
       <AppRoutes session={session} onLogin={handleLogin} onLogout={handleLogout} />
     </BrowserRouter>
+  )
+}
+
+function DepartmentHeadDashboardView({ session, onLogout }) {
+  const [tab, setTab] = useState('dashboard')
+  const [dashboardData, setDashboardData] = useState(null)
+  const [assets, setAssets] = useState([])
+  const [allocations, setAllocations] = useState([])
+  const [transfers, setTransfers] = useState([])
+  const [maintenanceRequests, setMaintenanceRequests] = useState([])
+  const [auditCycles, setAuditCycles] = useState([])
+  const [auditRecords, setAuditRecords] = useState([])
+  const [selectedCycleId, setSelectedCycleId] = useState(null)
+  const [bookings, setBookings] = useState([])
+  const [bookableResources, setBookableResources] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  // Forms
+  const [allocationForm, setAllocationForm] = useState({ assetId: '', employeeId: '', departmentId: '', expectedReturnDate: '' })
+  const [maintenanceForm, setMaintenanceForm] = useState({ assetId: '', issueDescription: '', priority: 'medium' })
+  const [bookingForm, setBookingForm] = useState({ resourceId: '', startTime: '', endTime: '' })
+  const [auditRecordForm, setAuditRecordForm] = useState({ recordId: '', result: 'verified', notes: '' })
+
+  const fetchDashboardKpis = async () => {
+    try {
+      const data = await apiRequest('/api/dashboard/department-head', {}, session.token)
+      setDashboardData(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAssets = async () => {
+    try {
+      const data = await apiRequest('/api/department/assets', {}, session.token)
+      setAssets(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAllocations = async () => {
+    try {
+      const data = await apiRequest('/api/department/allocations', {}, session.token)
+      setAllocations(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchTransfers = async () => {
+    try {
+      const data = await apiRequest('/api/department/transfers', {}, session.token)
+      setTransfers(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchMaintenanceRequests = async () => {
+    try {
+      const data = await apiRequest('/api/department/maintenance-requests', {}, session.token)
+      setMaintenanceRequests(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAuditCycles = async () => {
+    try {
+      const data = await apiRequest('/api/department/audit-cycles', {}, session.token)
+      setAuditCycles(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAuditRecords = async (cycleId) => {
+    try {
+      const data = await apiRequest(`/api/department/audit-cycles/${cycleId}/records`, {}, session.token)
+      setAuditRecords(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchBookings = async () => {
+    try {
+      const data = await apiRequest('/api/department/bookings', {}, session.token)
+      setBookings(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchBookableResources = async () => {
+    try {
+      const data = await apiRequest('/api/department/bookable-resources', {}, session.token)
+      setBookableResources(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchEmployees = async () => {
+    try {
+      const data = await apiRequest('/api/department/employees', {}, session.token)
+      setEmployees(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  useEffect(() => {
+    setError('')
+    setSuccess('')
+    if (tab === 'dashboard') {
+      fetchDashboardKpis()
+    } else if (tab === 'assets') {
+      fetchAssets()
+    } else if (tab === 'allocations') {
+      fetchAllocations()
+      fetchTransfers()
+      fetchAssets()
+      fetchEmployees()
+    } else if (tab === 'maintenance') {
+      fetchMaintenanceRequests()
+      fetchAssets()
+    } else if (tab === 'audits') {
+      fetchAuditCycles()
+    } else if (tab === 'bookings') {
+      fetchBookings()
+      fetchBookableResources()
+    }
+  }, [tab])
+
+  const handleCreateAllocation = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest('/api/department/allocations', {
+        method: 'POST',
+        body: JSON.stringify({
+          assetId: allocationForm.assetId,
+          employeeId: allocationForm.employeeId || undefined,
+          expectedReturnDate: allocationForm.expectedReturnDate || undefined
+        })
+      }, session.token)
+      setSuccess('Asset allocated successfully')
+      setAllocationForm({ assetId: '', employeeId: '', departmentId: '', expectedReturnDate: '' })
+      fetchAllocations()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleApproveTransfer = async (id) => {
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/department/transfers/${id}/approve`, { method: 'POST' }, session.token)
+      setSuccess('Transfer request approved successfully')
+      fetchTransfers()
+      fetchAllocations()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleRejectTransfer = async (id) => {
+    const reason = prompt('Reason for rejection:')
+    if (reason === null) return
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/department/transfers/${id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ reason })
+      }, session.token)
+      setSuccess('Transfer request rejected successfully')
+      fetchTransfers()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleRaiseMaintenance = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest('/api/department/maintenance-requests', {
+        method: 'POST',
+        body: JSON.stringify(maintenanceForm)
+      }, session.token)
+      setSuccess('Maintenance request raised successfully')
+      setMaintenanceForm({ assetId: '', issueDescription: '', priority: 'medium' })
+      fetchMaintenanceRequests()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleCreateBooking = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest('/api/department/bookings', {
+        method: 'POST',
+        body: JSON.stringify(bookingForm)
+      }, session.token)
+      setSuccess('Booking created successfully')
+      setBookingForm({ resourceId: '', startTime: '', endTime: '' })
+      fetchBookings()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleCancelBooking = async (id) => {
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/department/bookings/${id}/cancel`, { method: 'POST' }, session.token)
+      setSuccess('Booking cancelled successfully')
+      fetchBookings()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleSubmitAuditRecord = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/department/audit-records/${auditRecordForm.recordId}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({ result: auditRecordForm.result, notes: auditRecordForm.notes })
+      }, session.token)
+      setSuccess('Audit result submitted successfully')
+      setAuditRecordForm({ recordId: '', result: 'verified', notes: '' })
+      if (selectedCycleId) fetchAuditRecords(selectedCycleId)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <div style={{ width: '250px', padding: '20px', boxSizing: 'border-box' }}>
+        <h3>Dashboard Hub</h3>
+        <p>Logged in as:<br /><strong>{session.user.name}</strong><br />({roleToLabel(session.user.role)})</p>
+        <hr />
+        <ul style={{ listStyleType: 'none', padding: 0 }}>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('dashboard')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'dashboard' ? 'bold' : 'normal' }}>
+              KPI Overview
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('assets')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'assets' ? 'bold' : 'normal' }}>
+              Department Assets
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('allocations')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'allocations' ? 'bold' : 'normal' }}>
+              Allocations & Transfers
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('maintenance')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'maintenance' ? 'bold' : 'normal' }}>
+              Maintenance
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('audits')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'audits' ? 'bold' : 'normal' }}>
+              Audits
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('bookings')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'bookings' ? 'bold' : 'normal' }}>
+              Bookings
+            </button>
+          </li>
+        </ul>
+        <hr />
+        <p><button type="button" onClick={onLogout} style={{ width: '100%' }}>Logout</button></p>
+      </div>
+
+      <div style={{ flex: 1, padding: '20px', boxSizing: 'border-box' }}>
+        {error && <p style={{ color: 'red' }}><strong>Error:</strong> {error}</p>}
+        {success && <p style={{ color: 'green' }}><strong>Success:</strong> {success}</p>}
+
+        {tab === 'dashboard' && dashboardData && (
+          <div>
+            <h3>Department KPI Metrics ({dashboardData.department})</h3>
+            <ul>
+              <li>Total Assets in Department: <strong>{dashboardData.kpis.assetsCount}</strong></li>
+              <li>Active Allocations: <strong>{dashboardData.kpis.allocationsCount}</strong></li>
+              <li>Pending Transfers: <strong>{dashboardData.kpis.pendingTransfersCount}</strong></li>
+              <li>Pending Maintenance Requests: <strong>{dashboardData.kpis.pendingMaintenanceCount}</strong></li>
+            </ul>
+          </div>
+        )}
+
+        {tab === 'assets' && (
+          <div>
+            <h3>Department Assets</h3>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Tag</th>
+                  <th>Serial</th>
+                  <th>Condition</th>
+                  <th>Location</th>
+                  <th>Status</th>
+                  <th>Current Holder</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assets.length === 0 ? (
+                  <tr><td colSpan="7">No department assets found.</td></tr>
+                ) : (
+                  assets.map(asset => (
+                    <tr key={asset.id}>
+                      <td>{asset.name}</td>
+                      <td>{asset.assetTag}</td>
+                      <td>{asset.serialNumber || '-'}</td>
+                      <td>{asset.condition || '-'}</td>
+                      <td>{asset.location || '-'}</td>
+                      <td>{asset.status}</td>
+                      <td>
+                        {asset.currentHolderEmployee
+                          ? `Employee: ${asset.currentHolderEmployee.name}`
+                          : asset.currentHolderDepartment
+                          ? `Department: ${asset.currentHolderDepartment.name}`
+                          : 'Available'}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'allocations' && (
+          <div>
+            <h3>Department Allocations & Transfers</h3>
+            <form onSubmit={handleCreateAllocation}>
+              <h4>Allocate Asset to Employee in Department</h4>
+              <p>
+                <label>Select Asset:<br />
+                  <select
+                    value={allocationForm.assetId}
+                    onChange={e => setAllocationForm({ ...allocationForm, assetId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Choose Asset --</option>
+                    {assets.filter(a => a.status === 'available').map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.assetTag})</option>
+                    ))}
+                  </select>
+                </label>
+              </p>
+              <p>
+                <label>Allocate To Employee:<br />
+                  <select
+                    value={allocationForm.employeeId}
+                    onChange={e => setAllocationForm({ ...allocationForm, employeeId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Choose Employee --</option>
+                    {employees.map(emp => (
+                      <option key={emp.id} value={emp.id}>{emp.name} ({emp.employeeCode})</option>
+                    ))}
+                  </select>
+                </label>
+              </p>
+              <p>
+                <label>Expected Return Date:<br />
+                  <input
+                    type="date"
+                    value={allocationForm.expectedReturnDate}
+                    onChange={e => setAllocationForm({ ...allocationForm, expectedReturnDate: e.target.value })}
+                  />
+                </label>
+              </p>
+              <button type="submit">Allocate Asset</button>
+            </form>
+
+            <hr />
+            <h4>Department Active Allocations</h4>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Allocated To</th>
+                  <th>Allocated Date</th>
+                  <th>Expected Return</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allocations.length === 0 ? (
+                  <tr><td colSpan="5">No allocations found.</td></tr>
+                ) : (
+                  allocations.map(alloc => (
+                    <tr key={alloc.id}>
+                      <td>{alloc.asset?.name} ({alloc.asset?.assetTag})</td>
+                      <td>
+                        {alloc.allocatedToEmployee
+                          ? `Employee: ${alloc.allocatedToEmployee.name}`
+                          : alloc.allocatedToDepartment
+                          ? `Department: ${alloc.allocatedToDepartment.name}`
+                          : '-'}
+                      </td>
+                      <td>{new Date(alloc.allocatedDate).toLocaleDateString()}</td>
+                      <td>{alloc.expectedReturnDate ? new Date(alloc.expectedReturnDate).toLocaleDateString() : '-'}</td>
+                      <td>{alloc.status}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+            <hr />
+            <h4>Department Transfer Requests</h4>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Current Allocation</th>
+                  <th>Requested By</th>
+                  <th>Target Holder</th>
+                  <th>Reason</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transfers.length === 0 ? (
+                  <tr><td colSpan="7">No transfer requests found.</td></tr>
+                ) : (
+                  transfers.map(tr => (
+                    <tr key={tr.id}>
+                      <td>{tr.asset?.name} ({tr.asset?.assetTag})</td>
+                      <td>
+                        {tr.currentAllocation?.allocatedToEmployee
+                          ? `Employee: ${tr.currentAllocation.allocatedToEmployee.name}`
+                          : tr.currentAllocation?.allocatedToDepartment
+                          ? `Dept: ${tr.currentAllocation.allocatedToDepartment.name}`
+                          : 'Unallocated'}
+                      </td>
+                      <td>{tr.requestedBy?.name}</td>
+                      <td>
+                        {tr.requestedToEmployee
+                          ? `Employee: ${tr.requestedToEmployee.name}`
+                          : tr.requestedToDepartment
+                          ? `Dept: ${tr.requestedToDepartment.name}`
+                          : '-'}
+                      </td>
+                      <td>{tr.reason || '-'}</td>
+                      <td>{tr.status}</td>
+                      <td>
+                        {tr.status === 'requested' ? (
+                          <>
+                            <button type="button" onClick={() => handleApproveTransfer(tr.id)}>Approve</button>
+                            <button type="button" onClick={() => handleRejectTransfer(tr.id)}>Reject</button>
+                          </>
+                        ) : (
+                          <span>-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'maintenance' && (
+          <div>
+            <h3>Maintenance</h3>
+            <form onSubmit={handleRaiseMaintenance}>
+              <h4>Raise Maintenance Request</h4>
+              <p>
+                <label>Select Asset:<br />
+                  <select
+                    value={maintenanceForm.assetId}
+                    onChange={e => setMaintenanceForm({ ...maintenanceForm, assetId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Choose Asset --</option>
+                    {assets.map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.assetTag})</option>
+                    ))}
+                  </select>
+                </label>
+              </p>
+              <p>
+                <label>Issue Description:<br />
+                  <textarea
+                    value={maintenanceForm.issueDescription}
+                    onChange={e => setMaintenanceForm({ ...maintenanceForm, issueDescription: e.target.value })}
+                    required
+                  />
+                </label>
+              </p>
+              <p>
+                <label>Priority:<br />
+                  <select
+                    value={maintenanceForm.priority}
+                    onChange={e => setMaintenanceForm({ ...maintenanceForm, priority: e.target.value })}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </label>
+              </p>
+              <button type="submit">Raise Request</button>
+            </form>
+
+            <hr />
+            <h4>Maintenance Directory</h4>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Raised By</th>
+                  <th>Description</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Technician</th>
+                </tr>
+              </thead>
+              <tbody>
+                {maintenanceRequests.length === 0 ? (
+                  <tr><td colSpan="6">No maintenance requests found.</td></tr>
+                ) : (
+                  maintenanceRequests.map(req => (
+                    <tr key={req.id}>
+                      <td>{req.asset?.name} ({req.asset?.assetTag})</td>
+                      <td>{req.raisedBy?.name}</td>
+                      <td>{req.issueDescription}</td>
+                      <td>{req.priority}</td>
+                      <td>{req.status}</td>
+                      <td>{req.technicianName || '-'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'audits' && (
+          <div>
+            <h3>Audit Cycles</h3>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Scope Dept</th>
+                  <th>Scope Location</th>
+                  <th>Status</th>
+                  <th>Dates</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditCycles.length === 0 ? (
+                  <tr><td colSpan="6">No assigned audit cycles found.</td></tr>
+                ) : (
+                  auditCycles.map(cycle => (
+                    <tr key={cycle.id}>
+                      <td>{cycle.name}</td>
+                      <td>{cycle.scopeDepartment?.name || 'All'}</td>
+                      <td>{cycle.scopeLocation || 'All'}</td>
+                      <td>{cycle.status}</td>
+                      <td>{new Date(cycle.startDate).toLocaleDateString()} to {new Date(cycle.endDate).toLocaleDateString()}</td>
+                      <td>
+                        {cycle.status === 'in_progress' && (
+                          <button type="button" onClick={() => {
+                            setSelectedCycleId(cycle.id)
+                            fetchAuditRecords(cycle.id)
+                          }}>Verify Assets</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+            {selectedCycleId && (
+              <div style={{ marginTop: '20px' }}>
+                <h4>Audit Records for Cycle</h4>
+                <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th>Asset</th>
+                      <th>Condition</th>
+                      <th>Location</th>
+                      <th>Result</th>
+                      <th>Notes</th>
+                      <th>Submit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditRecords.map(rec => (
+                      <tr key={rec.id}>
+                        <td>{rec.asset?.name} ({rec.asset?.assetTag})</td>
+                        <td>{rec.asset?.condition}</td>
+                        <td>{rec.asset?.location}</td>
+                        <td>{rec.result}</td>
+                        <td>{rec.notes || '-'}</td>
+                        <td>
+                          {rec.result === 'pending' ? (
+                            <button type="button" onClick={() => setAuditRecordForm({ ...auditRecordForm, recordId: rec.id })}>Submit Result</button>
+                          ) : (
+                            <span>Completed</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {auditRecordForm.recordId && (
+              <form onSubmit={handleSubmitAuditRecord} style={{ marginTop: '20px' }}>
+                <h4>Submit Verification Result</h4>
+                <p>
+                  <label>Result:<br />
+                    <select
+                      value={auditRecordForm.result}
+                      onChange={e => setAuditRecordForm({ ...auditRecordForm, result: e.target.value })}
+                      required
+                    >
+                      <option value="verified">Verified</option>
+                      <option value="missing">Missing</option>
+                      <option value="damaged">Damaged</option>
+                    </select>
+                  </label>
+                </p>
+                <p>
+                  <label>Notes:<br />
+                    <textarea
+                      value={auditRecordForm.notes}
+                      onChange={e => setAuditRecordForm({ ...auditRecordForm, notes: e.target.value })}
+                    />
+                  </label>
+                </p>
+                <button type="submit">Submit Verification</button>
+                <button type="button" onClick={() => setAuditRecordForm({ recordId: '', result: 'verified', notes: '' })}>Cancel</button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {tab === 'bookings' && (
+          <div>
+            <h3>Bookings</h3>
+            <form onSubmit={handleCreateBooking}>
+              <h4>Book a Resource</h4>
+              <p>
+                <label>Select Resource:<br />
+                  <select
+                    value={bookingForm.resourceId}
+                    onChange={e => setBookingForm({ ...bookingForm, resourceId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Choose Resource --</option>
+                    {bookableResources.map(res => (
+                      <option key={res.id} value={res.id}>{res.linkedAsset?.name} ({res.linkedAsset?.assetTag})</option>
+                    ))}
+                  </select>
+                </label>
+              </p>
+              <p>
+                <label>Start Time:<br />
+                  <input
+                    type="datetime-local"
+                    value={bookingForm.startTime}
+                    onChange={e => setBookingForm({ ...bookingForm, startTime: e.target.value })}
+                    required
+                  />
+                </label>
+              </p>
+              <p>
+                <label>End Time:<br />
+                  <input
+                    type="datetime-local"
+                    value={bookingForm.endTime}
+                    onChange={e => setBookingForm({ ...bookingForm, endTime: e.target.value })}
+                    required
+                  />
+                </label>
+              </p>
+              <button type="submit">Book Resource</button>
+            </form>
+
+            <hr />
+            <h4>Department & Personal Bookings</h4>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Resource</th>
+                  <th>Booked By</th>
+                  <th>Department</th>
+                  <th>Start Time</th>
+                  <th>End Time</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bookings.length === 0 ? (
+                  <tr><td colSpan="7">No bookings found.</td></tr>
+                ) : (
+                  bookings.map(bk => (
+                    <tr key={bk.id}>
+                      <td>{bk.resource?.linkedAsset?.name || 'Resource'}</td>
+                      <td>{bk.bookedBy?.name}</td>
+                      <td>{bk.bookedForDepartment?.name || '-'}</td>
+                      <td>{new Date(bk.startTime).toLocaleString()}</td>
+                      <td>{new Date(bk.endTime).toLocaleString()}</td>
+                      <td>{bk.status}</td>
+                      <td>
+                        {bk.status === 'upcoming' && (
+                          <button type="button" onClick={() => handleCancelBooking(bk.id)}>Cancel Booking</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function EmployeeDashboardView({ session, onLogout }) {
+  const [tab, setTab] = useState('dashboard')
+  const [dashboardData, setDashboardData] = useState(null)
+  const [myAssets, setMyAssets] = useState([])
+  const [allAssets, setAllAssets] = useState([])
+  const [selectedAsset, setSelectedAsset] = useState(null)
+  const [assetHistory, setAssetHistory] = useState(null)
+  const [bookings, setBookings] = useState([])
+  const [bookableResources, setBookableResources] = useState([])
+  const [transfers, setTransfers] = useState([])
+  const [maintenanceRequests, setMaintenanceRequests] = useState([])
+  const [auditCycles, setAuditCycles] = useState([])
+  const [auditRecords, setAuditRecords] = useState([])
+  const [selectedCycleId, setSelectedCycleId] = useState(null)
+  const [notifications, setNotifications] = useState([])
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  // Search/Filter for Asset Registry
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Forms
+  const [bookingForm, setBookingForm] = useState({ resourceId: '', startTime: '', endTime: '' })
+  const [editingBooking, setEditingBooking] = useState(null)
+  const [transferForm, setTransferForm] = useState({ assetId: '', reason: '' })
+  const [maintenanceForm, setMaintenanceForm] = useState({ assetId: '', issueDescription: '', priority: 'medium' })
+  const [auditRecordForm, setAuditRecordForm] = useState({ recordId: '', result: 'verified', notes: '' })
+
+  const fetchDashboardKpis = async () => {
+    try {
+      const data = await apiRequest('/api/dashboard/employee', {}, session.token)
+      setDashboardData(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchMyAssets = async () => {
+    try {
+      const data = await apiRequest('/api/employee/my/assets', {}, session.token)
+      setMyAssets(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAllAssets = async () => {
+    try {
+      const data = await apiRequest('/api/employee/assets', {}, session.token)
+      setAllAssets(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAssetHistory = async (assetId) => {
+    try {
+      const data = await apiRequest(`/api/employee/assets/${assetId}/history`, {}, session.token)
+      setAssetHistory(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchBookings = async () => {
+    try {
+      const data = await apiRequest('/api/employee/my/bookings', {}, session.token)
+      setBookings(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchBookableResources = async () => {
+    try {
+      const resData = await apiRequest('/api/employee/bookable-resources', {}, session.token)
+      setBookableResources(resData)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchTransfers = async () => {
+    try {
+      const data = await apiRequest('/api/employee/my/transfers', {}, session.token)
+      setTransfers(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchMaintenanceRequests = async () => {
+    try {
+      const data = await apiRequest('/api/employee/my/maintenance-requests', {}, session.token)
+      setMaintenanceRequests(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAuditCycles = async () => {
+    try {
+      const data = await apiRequest('/api/employee/my/audit-cycles', {}, session.token)
+      setAuditCycles(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchAuditRecords = async (cycleId) => {
+    try {
+      const data = await apiRequest(`/api/employee/my/audit-cycles/${cycleId}/records`, {}, session.token)
+      setAuditRecords(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const fetchNotifications = async () => {
+    try {
+      const data = await apiRequest('/api/employee/my/notifications', {}, session.token)
+      setNotifications(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  useEffect(() => {
+    setError('')
+    setSuccess('')
+    setSelectedAsset(null)
+    setAssetHistory(null)
+    setSelectedCycleId(null)
+    setAuditRecords([])
+    
+    if (tab === 'dashboard') {
+      fetchDashboardKpis()
+    } else if (tab === 'my-assets') {
+      fetchMyAssets()
+    } else if (tab === 'registry') {
+      fetchAllAssets()
+    } else if (tab === 'bookings') {
+      fetchBookings()
+      fetchBookableResources()
+    } else if (tab === 'transfers') {
+      fetchTransfers()
+      fetchMyAssets()
+    } else if (tab === 'maintenance') {
+      fetchMaintenanceRequests()
+      fetchMyAssets()
+    } else if (tab === 'audits') {
+      fetchAuditCycles()
+    } else if (tab === 'notifications') {
+      fetchNotifications()
+    }
+  }, [tab])
+
+  const handleCreateBooking = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest('/api/employee/bookings', {
+        method: 'POST',
+        body: JSON.stringify(bookingForm)
+      }, session.token)
+      setSuccess('Booking created successfully')
+      setBookingForm({ resourceId: '', startTime: '', endTime: '' })
+      fetchBookings()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleUpdateBooking = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/employee/bookings/${editingBooking.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ startTime: bookingForm.startTime, endTime: bookingForm.endTime })
+      }, session.token)
+      setSuccess('Booking updated successfully')
+      setEditingBooking(null)
+      setBookingForm({ resourceId: '', startTime: '', endTime: '' })
+      fetchBookings()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleCancelBooking = async (id) => {
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/employee/bookings/${id}/cancel`, { method: 'POST' }, session.token)
+      setSuccess('Booking cancelled successfully')
+      fetchBookings()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleCreateTransfer = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest('/api/employee/transfers', {
+        method: 'POST',
+        body: JSON.stringify(transferForm)
+      }, session.token)
+      setSuccess('Transfer request initiated successfully')
+      setTransferForm({ assetId: '', reason: '' })
+      fetchTransfers()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleRaiseMaintenance = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest('/api/employee/maintenance-requests', {
+        method: 'POST',
+        body: JSON.stringify(maintenanceForm)
+      }, session.token)
+      setSuccess('Maintenance request raised successfully')
+      setMaintenanceForm({ assetId: '', issueDescription: '', priority: 'medium' })
+      fetchMaintenanceRequests()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleSubmitAuditRecord = async (e) => {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/employee/audit-records/${auditRecordForm.recordId}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({ result: auditRecordForm.result, notes: auditRecordForm.notes })
+      }, session.token)
+      setSuccess('Audit result submitted successfully')
+      setAuditRecordForm({ recordId: '', result: 'verified', notes: '' })
+      if (selectedCycleId) fetchAuditRecords(selectedCycleId)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleMarkAsRead = async (id) => {
+    try {
+      await apiRequest(`/api/employee/my/notifications/${id}/read`, { method: 'POST' }, session.token)
+      fetchNotifications()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  // Filter Assets Registry
+  const filteredAssets = allAssets.filter(asset => {
+    const query = searchQuery.toLowerCase()
+    return (
+      asset.name?.toLowerCase().includes(query) ||
+      asset.assetTag?.toLowerCase().includes(query) ||
+      asset.category?.name?.toLowerCase().includes(query)
+    )
+  })
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <div style={{ width: '250px', padding: '20px', boxSizing: 'border-box' }}>
+        <h3>Dashboard Hub</h3>
+        <p>Logged in as:<br /><strong>{session.user.name}</strong><br />({roleToLabel(session.user.role)})</p>
+        <hr />
+        <ul style={{ listStyleType: 'none', padding: 0 }}>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('dashboard')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'dashboard' ? 'bold' : 'normal' }}>
+              KPI Overview
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('my-assets')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'my-assets' ? 'bold' : 'normal' }}>
+              My Assets
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('registry')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'registry' ? 'bold' : 'normal' }}>
+              Asset Registry
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('bookings')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'bookings' ? 'bold' : 'normal' }}>
+              Book Resource
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('transfers')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'transfers' ? 'bold' : 'normal' }}>
+              Initiate Transfer
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('maintenance')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'maintenance' ? 'bold' : 'normal' }}>
+              Maintenance
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('audits')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'audits' ? 'bold' : 'normal' }}>
+              Audits
+            </button>
+          </li>
+          <li style={{ marginBottom: '10px' }}>
+            <button type="button" onClick={() => setTab('notifications')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'notifications' ? 'bold' : 'normal' }}>
+              Notifications {dashboardData?.kpis?.unreadNotificationsCount > 0 ? `(${dashboardData.kpis.unreadNotificationsCount})` : ''}
+            </button>
+          </li>
+        </ul>
+        <hr />
+        <p><button type="button" onClick={onLogout} style={{ width: '100%' }}>Logout</button></p>
+      </div>
+
+      <div style={{ flex: 1, padding: '20px', boxSizing: 'border-box' }}>
+        {error && <p style={{ color: 'red' }}><strong>Error:</strong> {error}</p>}
+        {success && <p style={{ color: 'green' }}><strong>Success:</strong> {success}</p>}
+
+        {tab === 'dashboard' && dashboardData && (
+          <div>
+            <h3>Welcome back, {session.user.name}!</h3>
+            <ul>
+              <li>My Allocated Assets: <strong>{dashboardData.kpis.assetsCount}</strong></li>
+              <li>Upcoming Bookings: <strong>{dashboardData.kpis.bookingsCount}</strong></li>
+              <li>My Pending Maintenance: <strong>{dashboardData.kpis.pendingMaintenanceCount}</strong></li>
+              <li>Unread Notifications: <strong>{dashboardData.kpis.unreadNotificationsCount}</strong></li>
+            </ul>
+          </div>
+        )}
+
+        {tab === 'my-assets' && (
+          <div>
+            <h3>My Allocated Assets</h3>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Tag</th>
+                  <th>Category</th>
+                  <th>Condition</th>
+                  <th>Location</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {myAssets.length === 0 ? (
+                  <tr><td colSpan="6">No assets currently allocated to you.</td></tr>
+                ) : (
+                  myAssets.map(asset => (
+                    <tr key={asset.id}>
+                      <td>{asset.name}</td>
+                      <td>{asset.assetTag}</td>
+                      <td>{asset.category?.name || '-'}</td>
+                      <td>{asset.condition || '-'}</td>
+                      <td>{asset.location || '-'}</td>
+                      <td>
+                        <button type="button" onClick={() => {
+                          setSelectedAsset(asset)
+                          fetchAssetHistory(asset.id)
+                        }}>View History</button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+            {selectedAsset && assetHistory && (
+              <div style={{ marginTop: '20px', border: '1px solid #ccc', padding: '15px' }}>
+                <h4>Asset Details & History: {selectedAsset.name} ({selectedAsset.assetTag})</h4>
+                <p><strong>Condition:</strong> {selectedAsset.condition || 'Unknown'}</p>
+                <p><strong>Location:</strong> {selectedAsset.location || 'N/A'}</p>
+
+                <h5>Allocation History</h5>
+                <ul>
+                  {assetHistory.allocations.length === 0 ? <li>No previous allocations.</li> : (
+                    assetHistory.allocations.map(a => (
+                      <li key={a.id}>
+                        Allocated to {a.allocatedToEmployee?.name || a.allocatedToDepartment?.name || 'Unknown'} on {new Date(a.allocatedDate).toLocaleDateString()}
+                        {a.actualReturnDate ? ` (Returned on ${new Date(a.actualReturnDate).toLocaleDateString()})` : ' (Current)'}
+                      </li>
+                    ))
+                  )}
+                </ul>
+
+                <h5>Maintenance History</h5>
+                <ul>
+                  {assetHistory.maintenance.length === 0 ? <li>No maintenance history.</li> : (
+                    assetHistory.maintenance.map(m => (
+                      <li key={m.id}>
+                        {m.issueDescription} - Status: <strong>{m.status}</strong> (Raised on {new Date(m.createdAt).toLocaleDateString()})
+                      </li>
+                    ))
+                  )}
+                </ul>
+                <button type="button" onClick={() => { setSelectedAsset(null); setAssetHistory(null); }}>Close Panel</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'registry' && (
+          <div>
+            <h3>Complete Asset Registry</h3>
+            <p>
+              <input
+                type="text"
+                placeholder="Search by name, tag, or category..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{ width: '100%', padding: '8px', boxSizing: 'border-box', marginBottom: '10px' }}
+              />
+            </p>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Tag</th>
+                  <th>Category</th>
+                  <th>Status</th>
+                  <th>Location</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAssets.length === 0 ? (
+                  <tr><td colSpan="6">No assets match search parameters.</td></tr>
+                ) : (
+                  filteredAssets.map(asset => (
+                    <tr key={asset.id}>
+                      <td>{asset.name}</td>
+                      <td>{asset.assetTag}</td>
+                      <td>{asset.category?.name || '-'}</td>
+                      <td>{asset.status}</td>
+                      <td>{asset.location || '-'}</td>
+                      <td>
+                        <button type="button" onClick={() => {
+                          setSelectedAsset(asset)
+                          fetchAssetHistory(asset.id)
+                        }}>View History</button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'bookings' && (
+          <div>
+            <h3>Shared Resource Booking</h3>
+            <form onSubmit={editingBooking ? handleUpdateBooking : handleCreateBooking}>
+              <h4>{editingBooking ? 'Update Booking' : 'Book a Resource'}</h4>
+              {!editingBooking && (
+                <p>
+                  <label>Select Resource:<br />
+                    <select
+                      value={bookingForm.resourceId}
+                      onChange={e => setBookingForm({ ...bookingForm, resourceId: e.target.value })}
+                      required
+                    >
+                      <option value="">-- Choose Resource --</option>
+                      {bookableResources.map(res => (
+                        <option key={res.id} value={res.id}>{res.name} {res.linkedAsset ? `(${res.linkedAsset.assetTag})` : ''}</option>
+                      ))}
+                    </select>
+                  </label>
+                </p>
+              )}
+              <p>
+                <label>Start Time:<br />
+                  <input
+                    type="datetime-local"
+                    value={bookingForm.startTime}
+                    onChange={e => setBookingForm({ ...bookingForm, startTime: e.target.value })}
+                    required
+                  />
+                </label>
+              </p>
+              <p>
+                <label>End Time:<br />
+                  <input
+                    type="datetime-local"
+                    value={bookingForm.endTime}
+                    onChange={e => setBookingForm({ ...bookingForm, endTime: e.target.value })}
+                    required
+                  />
+                </label>
+              </p>
+              <button type="submit">{editingBooking ? 'Update Booking' : 'Book Resource'}</button>
+              {editingBooking && (
+                <button type="button" onClick={() => { setEditingBooking(null); setBookingForm({ resourceId: '', startTime: '', endTime: '' }) }}>Cancel Edit</button>
+              )}
+            </form>
+
+            <hr />
+            <h4>My Bookings</h4>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Resource</th>
+                  <th>Start Time</th>
+                  <th>End Time</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bookings.length === 0 ? (
+                  <tr><td colSpan="5">No bookings found.</td></tr>
+                ) : (
+                  bookings.map(bk => (
+                    <tr key={bk.id}>
+                      <td>{bk.resource?.name || 'Resource'}</td>
+                      <td>{new Date(bk.startTime).toLocaleString()}</td>
+                      <td>{new Date(bk.endTime).toLocaleString()}</td>
+                      <td>{bk.status}</td>
+                      <td>
+                        {bk.status === 'upcoming' && (
+                          <>
+                            <button type="button" onClick={() => {
+                              setEditingBooking(bk)
+                              setBookingForm({
+                                resourceId: bk.resource?.id || '',
+                                startTime: new Date(bk.startTime).toISOString().slice(0, 16),
+                                endTime: new Date(bk.endTime).toISOString().slice(0, 16)
+                              })
+                            }}>Reschedule</button>
+                            {' '}
+                            <button type="button" onClick={() => handleCancelBooking(bk.id)}>Cancel</button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'transfers' && (
+          <div>
+            <h3>Initiate Asset Transfer Request</h3>
+            <form onSubmit={handleCreateTransfer}>
+              <h4>Request Asset Transfer</h4>
+              <p>
+                <label>Select Asset to Request:<br />
+                  <select
+                    value={transferForm.assetId}
+                    onChange={e => setTransferForm({ ...transferForm, assetId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Choose Asset --</option>
+                    {myAssets.map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.assetTag}) - My Allocated</option>
+                    ))}
+                    {allAssets.filter(a => !myAssets.some(ma => ma.id === a.id)).map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.assetTag})</option>
+                    ))}
+                  </select>
+                </label>
+              </p>
+              <p>
+                <label>Reason for Transfer:<br />
+                  <textarea
+                    value={transferForm.reason}
+                    onChange={e => setTransferForm({ ...transferForm, reason: e.target.value })}
+                    required
+                  />
+                </label>
+              </p>
+              <button type="submit">Submit Transfer Request</button>
+            </form>
+
+            <hr />
+            <h4>My Transfer History / Pending Requests</h4>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Current Holder</th>
+                  <th>Requested By</th>
+                  <th>Reason</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transfers.length === 0 ? (
+                  <tr><td colSpan="5">No transfer requests.</td></tr>
+                ) : (
+                  transfers.map(tr => (
+                    <tr key={tr.id}>
+                      <td>{tr.asset?.name} ({tr.asset?.assetTag})</td>
+                      <td>{tr.currentAllocation?.allocatedToEmployee?.name || 'Unassigned'}</td>
+                      <td>{tr.requestedBy?.name}</td>
+                      <td>{tr.reason || '-'}</td>
+                      <td>{tr.status}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'maintenance' && (
+          <div>
+            <h3>My Maintenance Requests</h3>
+            <form onSubmit={handleRaiseMaintenance}>
+              <h4>Raise Maintenance Request</h4>
+              <p>
+                <label>Select Your Allocated Asset:<br />
+                  <select
+                    value={maintenanceForm.assetId}
+                    onChange={e => setMaintenanceForm({ ...maintenanceForm, assetId: e.target.value })}
+                    required
+                  >
+                    <option value="">-- Choose Allocated Asset --</option>
+                    {myAssets.map(a => (
+                      <option key={a.id} value={a.id}>{a.name} ({a.assetTag})</option>
+                    ))}
+                  </select>
+                </label>
+              </p>
+              <p>
+                <label>Issue Description:<br />
+                  <textarea
+                    value={maintenanceForm.issueDescription}
+                    onChange={e => setMaintenanceForm({ ...maintenanceForm, issueDescription: e.target.value })}
+                    required
+                  />
+                </label>
+              </p>
+              <p>
+                <label>Priority:<br />
+                  <select
+                    value={maintenanceForm.priority}
+                    onChange={e => setMaintenanceForm({ ...maintenanceForm, priority: e.target.value })}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </label>
+              </p>
+              <button type="submit">Raise Request</button>
+            </form>
+
+            <hr />
+            <h4>My Maintenance Requests History</h4>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Asset</th>
+                  <th>Description</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {maintenanceRequests.length === 0 ? (
+                  <tr><td colSpan="4">No requests found.</td></tr>
+                ) : (
+                  maintenanceRequests.map(req => (
+                    <tr key={req.id}>
+                      <td>{req.asset?.name} ({req.asset?.assetTag})</td>
+                      <td>{req.issueDescription}</td>
+                      <td>{req.priority}</td>
+                      <td>{req.status}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {tab === 'audits' && (
+          <div>
+            <h3>Audit Cycles Participation</h3>
+            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Scope Dept</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditCycles.length === 0 ? (
+                  <tr><td colSpan="4">No assigned audit cycles.</td></tr>
+                ) : (
+                  auditCycles.map(cycle => (
+                    <tr key={cycle.id}>
+                      <td>{cycle.name}</td>
+                      <td>{cycle.scopeDepartment?.name || 'All'}</td>
+                      <td>{cycle.status}</td>
+                      <td>
+                        <button type="button" onClick={() => {
+                          setSelectedCycleId(cycle.id)
+                          fetchAuditRecords(cycle.id)
+                        }}>Verify Assets</button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+
+            {selectedCycleId && (
+              <div style={{ marginTop: '20px' }}>
+                <h4>Audit Records for Cycle</h4>
+                <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th>Asset</th>
+                      <th>Condition</th>
+                      <th>Location</th>
+                      <th>Result</th>
+                      <th>Notes</th>
+                      <th>Submit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditRecords.map(rec => (
+                      <tr key={rec.id}>
+                        <td>{rec.asset?.name} ({rec.asset?.assetTag})</td>
+                        <td>{rec.asset?.condition}</td>
+                        <td>{rec.asset?.location}</td>
+                        <td>{rec.result}</td>
+                        <td>{rec.notes || '-'}</td>
+                        <td>
+                          {rec.result === 'pending' ? (
+                            <button type="button" onClick={() => setAuditRecordForm({ ...auditRecordForm, recordId: rec.id })}>Submit Result</button>
+                          ) : (
+                            <span>Completed</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {auditRecordForm.recordId && (
+              <form onSubmit={handleSubmitAuditRecord} style={{ marginTop: '20px' }}>
+                <h4>Submit Verification Result</h4>
+                <p>
+                  <label>Result:<br />
+                    <select
+                      value={auditRecordForm.result}
+                      onChange={e => setAuditRecordForm({ ...auditRecordForm, result: e.target.value })}
+                      required
+                    >
+                      <option value="verified">Verified</option>
+                      <option value="missing">Missing</option>
+                      <option value="damaged">Damaged</option>
+                    </select>
+                  </label>
+                </p>
+                <p>
+                  <label>Notes:<br />
+                    <textarea
+                      value={auditRecordForm.notes}
+                      onChange={e => setAuditRecordForm({ ...auditRecordForm, notes: e.target.value })}
+                    />
+                  </label>
+                </p>
+                <button type="submit">Submit Verification</button>
+                <button type="button" onClick={() => setAuditRecordForm({ recordId: '', result: 'verified', notes: '' })}>Cancel</button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {tab === 'notifications' && (
+          <div>
+            <h3>My Notifications</h3>
+            <ul style={{ listStyleType: 'none', padding: 0 }}>
+              {notifications.length === 0 ? <li>No notifications found.</li> : (
+                notifications.map(notif => (
+                  <li key={notif.id} style={{
+                    padding: '10px',
+                    border: '1px solid #eee',
+                    marginBottom: '10px',
+                    backgroundColor: notif.isRead ? '#fcfcfc' : '#fff9f9',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}>
+                    <div>
+                      <p style={{ margin: 0, fontWeight: notif.isRead ? 'normal' : 'bold' }}>{notif.message}</p>
+                      <small style={{ color: '#777' }}>{new Date(notif.createdAt).toLocaleString()}</small>
+                    </div>
+                    {!notif.isRead && (
+                      <button type="button" onClick={() => handleMarkAsRead(notif.id)}>Mark Read</button>
+                    )}
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 

@@ -16,7 +16,7 @@ import { AssetStatusTransitionLog } from '../entities/AssetStatusTransitionLog';
 import { AuditCycle, AuditCycleStatus } from '../entities/AuditCycle';
 import { AuditRecord, AuditRecordResult } from '../entities/AuditRecord';
 import { BookableResource } from '../entities/BookableResource';
-import { ResourceBooking } from '../entities/ResourceBooking';
+import { ResourceBooking, ResourceBookingStatus } from '../entities/ResourceBooking';
 import { TransferRequest, TransferRequestStatus } from '../entities/TransferRequest';
 import { Notification } from '../entities/Notification';
 import { ActivityLog } from '../entities/ActivityLog';
@@ -28,7 +28,7 @@ import { env } from '../config/env';
 export const adminRouter = Router();
 
 adminRouter.use(authenticateToken);
-adminRouter.use(requireRole(EmployeeRole.ADMIN));
+adminRouter.use(requireRole(EmployeeRole.ADMIN, EmployeeRole.ASSET_MANAGER));
 
 async function deleteEmployeeCascade(employeeId: string, manager: EntityManager) {
   const employeeRepo = manager.getRepository(Employee);
@@ -211,6 +211,9 @@ adminRouter.get('/departments', async (req, res) => {
 });
 
 adminRouter.post('/departments', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const { name, code, parentDepartmentId } = req.body as {
     name?: string;
@@ -266,6 +269,9 @@ adminRouter.post('/departments', async (req, res) => {
 });
 
 adminRouter.put('/departments/:id', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
   const { name, code, parentDepartmentId, departmentHeadId, status } = req.body as {
@@ -354,6 +360,9 @@ adminRouter.put('/departments/:id', async (req, res) => {
 });
 
 adminRouter.post('/departments/:id/deactivate', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -383,6 +392,9 @@ adminRouter.post('/departments/:id/deactivate', async (req, res) => {
 });
 
 adminRouter.delete('/departments/:id', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -424,6 +436,9 @@ adminRouter.get('/asset-categories', async (req, res) => {
 });
 
 adminRouter.post('/asset-categories', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const { name, description, customFieldSchema } = req.body as {
     name?: string;
@@ -467,6 +482,9 @@ adminRouter.post('/asset-categories', async (req, res) => {
 });
 
 adminRouter.put('/asset-categories/:id', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
   const { name, description, customFieldSchema, isActive } = req.body as {
@@ -521,6 +539,9 @@ adminRouter.put('/asset-categories/:id', async (req, res) => {
 });
 
 adminRouter.post('/asset-categories/:id/deactivate', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -549,6 +570,9 @@ adminRouter.post('/asset-categories/:id/deactivate', async (req, res) => {
 });
 
 adminRouter.delete('/asset-categories/:id', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -595,6 +619,9 @@ adminRouter.get('/employees', async (req, res) => {
 });
 
 adminRouter.post('/employees', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const { name, email, departmentId, role } = req.body as {
     name?: string;
@@ -690,6 +717,9 @@ adminRouter.post('/employees', async (req, res) => {
 });
 
 adminRouter.put('/employees/:id', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
   const { name, email, departmentId } = req.body as {
@@ -753,6 +783,9 @@ adminRouter.put('/employees/:id', async (req, res) => {
 });
 
 adminRouter.post('/employees/:id/deactivate', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -791,6 +824,9 @@ adminRouter.post('/employees/:id/deactivate', async (req, res) => {
 });
 
 adminRouter.post('/employees/:id/reactivate', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -829,6 +865,9 @@ adminRouter.post('/employees/:id/reactivate', async (req, res) => {
 });
 
 adminRouter.delete('/employees/:id', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -859,6 +898,9 @@ adminRouter.delete('/employees/:id', async (req, res) => {
 });
 
 adminRouter.post('/employees/:id/change-role', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
   const { role, departmentId } = req.body as {
@@ -1675,6 +1717,9 @@ adminRouter.get('/audit-cycles', async (req, res) => {
 });
 
 adminRouter.post('/audit-cycles', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const { name, scopeDepartmentId, scopeLocation, startDate, endDate } = req.body as {
     name?: string;
@@ -1728,6 +1773,9 @@ adminRouter.post('/audit-cycles', async (req, res) => {
 });
 
 adminRouter.post('/audit-cycles/:id/start', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -1800,6 +1848,9 @@ adminRouter.post('/audit-cycles/:id/start', async (req, res) => {
 });
 
 adminRouter.post('/audit-cycles/:id/assign-auditors', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
   const { employeeIds } = req.body as { employeeIds?: string[] };
@@ -1843,6 +1894,9 @@ adminRouter.post('/audit-cycles/:id/assign-auditors', async (req, res) => {
 });
 
 adminRouter.post('/audit-cycles/:id/close', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   const auth = getAuth(req);
   const id = req.params.id;
 
@@ -1907,6 +1961,9 @@ adminRouter.delete('/assets/:id', async (req, res) => {
 });
 
 adminRouter.get('/logs', async (req, res) => {
+  if (req.auth?.role !== EmployeeRole.ADMIN) {
+    return res.status(403).json({ message: 'Forbidden' });
+  }
   try {
     const logRepo = AppDataSource.getRepository(ActivityLog);
     const logs = await logRepo.find({
@@ -1915,6 +1972,343 @@ adminRouter.get('/logs', async (req, res) => {
       take: 100
     });
     return res.json(logs);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// Return Approval API
+adminRouter.post('/allocations/:id/return', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+  const { notes, assetCondition } = req.body as { notes?: string; assetCondition?: string };
+
+  try {
+    const allocationRepo = AppDataSource.getRepository(AssetAllocation);
+    const assetRepo = AppDataSource.getRepository(Asset);
+
+    const allocation = await allocationRepo.findOne({
+      where: { id },
+      relations: { asset: true }
+    });
+
+    if (!allocation) {
+      return res.status(404).json({ message: 'Allocation not found' });
+    }
+
+    if (allocation.status !== AllocationStatus.ACTIVE) {
+      return res.status(400).json({ message: 'Allocation is not active' });
+    }
+
+    await AppDataSource.transaction(async (manager) => {
+      allocation.status = AllocationStatus.RETURNED;
+      allocation.actualReturnDate = new Date();
+      allocation.checkInConditionNotes = notes || null;
+      allocation.returnApprovedBy = { id: auth.employeeId } as Employee;
+      await manager.save(allocation);
+
+      const asset = allocation.asset;
+      asset.status = AssetStatus.AVAILABLE;
+      if (assetCondition) {
+        asset.condition = assetCondition;
+      }
+      asset.currentHolderEmployee = null;
+      asset.currentHolderDepartment = null;
+      await manager.save(asset);
+    });
+
+    await logAudit(
+      auth.employeeId,
+      'APPROVE_RETURN',
+      'AssetAllocation',
+      id,
+      { assetId: allocation.asset.id, notes }
+    );
+
+    return res.json({ message: 'Return approved successfully', allocation });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// Bookable Resources API
+adminRouter.get('/bookable-resources', async (req, res) => {
+  try {
+    const resourceRepo = AppDataSource.getRepository(BookableResource);
+    const resources = await resourceRepo.find({
+      relations: { linkedAsset: true }
+    });
+    return res.json(resources);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.post('/bookable-resources', async (req, res) => {
+  const auth = getAuth(req);
+  const { name, location, capacity, linkedAssetId } = req.body as {
+    name?: string;
+    location?: string;
+    capacity?: number;
+    linkedAssetId?: string;
+  };
+
+  if (!name) {
+    return res.status(400).json({ message: 'Name is required' });
+  }
+
+  try {
+    const resourceRepo = AppDataSource.getRepository(BookableResource);
+    const assetRepo = AppDataSource.getRepository(Asset);
+
+    let linkedAsset: Asset | null = null;
+    if (linkedAssetId) {
+      linkedAsset = await assetRepo.findOne({ where: { id: linkedAssetId } });
+    }
+
+    const resource = resourceRepo.create({
+      name,
+      location,
+      capacity,
+      linkedAsset: linkedAsset || undefined
+    });
+
+    await resourceRepo.save(resource);
+
+    await logAudit(
+      auth.employeeId,
+      'CREATE_RESOURCE',
+      'BookableResource',
+      resource.id
+    );
+
+    return res.status(201).json(resource);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.put('/bookable-resources/:id', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+  const { name, location, capacity, isActive } = req.body as {
+    name?: string;
+    location?: string;
+    capacity?: number;
+    isActive?: boolean;
+  };
+
+  try {
+    const resourceRepo = AppDataSource.getRepository(BookableResource);
+    const resource = await resourceRepo.findOne({ where: { id } });
+
+    if (!resource) {
+      return res.status(404).json({ message: 'Bookable resource not found' });
+    }
+
+    if (name) resource.name = name;
+    if (location !== undefined) resource.location = location;
+    if (capacity !== undefined) resource.capacity = capacity;
+    if (isActive !== undefined) resource.isActive = isActive;
+
+    await resourceRepo.save(resource);
+
+    await logAudit(
+      auth.employeeId,
+      'UPDATE_RESOURCE',
+      'BookableResource',
+      id
+    );
+
+    return res.json(resource);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.delete('/bookable-resources/:id', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+
+  try {
+    const resourceRepo = AppDataSource.getRepository(BookableResource);
+    const resource = await resourceRepo.findOne({ where: { id } });
+
+    if (!resource) {
+      return res.status(404).json({ message: 'Bookable resource not found' });
+    }
+
+    await resourceRepo.delete(id);
+
+    await logAudit(
+      auth.employeeId,
+      'DELETE_RESOURCE',
+      'BookableResource',
+      id
+    );
+
+    return res.json({ message: 'Bookable resource deleted successfully' });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// Bookings API
+adminRouter.get('/bookings', async (req, res) => {
+  try {
+    const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+    const bookings = await bookingRepo.find({
+      relations: {
+        resource: { linkedAsset: true },
+        bookedBy: true,
+        bookedForDepartment: true
+      }
+    });
+    return res.json(bookings);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.post('/bookings', async (req, res) => {
+  const auth = getAuth(req);
+  const { resourceId, startTime, endTime, bookedByEmployeeId, bookedForDepartmentId } = req.body as {
+    resourceId: string;
+    startTime: string;
+    endTime: string;
+    bookedByEmployeeId?: string;
+    bookedForDepartmentId?: string;
+  };
+
+  if (!resourceId || !startTime || !endTime) {
+    return res.status(400).json({ message: 'ResourceId, startTime, and endTime are required' });
+  }
+
+  try {
+    const resourceRepo = AppDataSource.getRepository(BookableResource);
+    const resource = await resourceRepo.findOne({ where: { id: resourceId } });
+    if (!resource) {
+      return res.status(400).json({ message: 'Bookable resource not found' });
+    }
+
+    const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+    const booking = bookingRepo.create({
+      resource,
+      startTime: new Date(startTime),
+      endTime: new Date(endTime),
+      bookedBy: bookedByEmployeeId ? { id: bookedByEmployeeId } as Employee : { id: auth.employeeId } as Employee,
+      bookedForDepartment: bookedForDepartmentId ? { id: bookedForDepartmentId } as Department : undefined,
+      status: ResourceBookingStatus.UPCOMING
+    });
+
+    await bookingRepo.save(booking);
+
+    await logAudit(
+      auth.employeeId,
+      'CREATE_BOOKING',
+      'ResourceBooking',
+      booking.id,
+      { resourceId }
+    );
+
+    return res.status(201).json(booking);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.post('/bookings/:id/cancel', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+
+  try {
+    const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+    const booking = await bookingRepo.findOne({ where: { id } });
+
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    booking.status = ResourceBookingStatus.CANCELLED;
+    await bookingRepo.save(booking);
+
+    await logAudit(
+      auth.employeeId,
+      'CANCEL_BOOKING',
+      'ResourceBooking',
+      booking.id
+    );
+
+    return res.json({ message: 'Booking cancelled successfully', booking });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.put('/bookings/:id', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+  const { startTime, endTime, status } = req.body as { startTime?: string; endTime?: string; status?: ResourceBookingStatus };
+
+  try {
+    const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+    const booking = await bookingRepo.findOne({ where: { id } });
+
+    if (!booking) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    if (startTime) booking.startTime = new Date(startTime);
+    if (endTime) booking.endTime = new Date(endTime);
+    if (status) booking.status = status;
+
+    await bookingRepo.save(booking);
+
+    await logAudit(
+      auth.employeeId,
+      'UPDATE_BOOKING',
+      'ResourceBooking',
+      id
+    );
+
+    return res.json(booking);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+// Reports API
+adminRouter.get('/reports/summary', async (req, res) => {
+  try {
+    const assetRepo = AppDataSource.getRepository(Asset);
+    const allocationRepo = AppDataSource.getRepository(AssetAllocation);
+    const mrRepo = AppDataSource.getRepository(MaintenanceRequest);
+    const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+
+    const totalAssets = await assetRepo.count();
+    const assetsByStatus = await assetRepo.createQueryBuilder('asset')
+      .select('asset.status', 'status')
+      .addSelect('COUNT(*)', 'count')
+      .groupBy('asset.status')
+      .getRawMany();
+
+    const totalAllocations = await allocationRepo.count();
+    const activeAllocations = await allocationRepo.count({ where: { status: AllocationStatus.ACTIVE } });
+    
+    const totalMaintenance = await mrRepo.count();
+    const pendingMaintenance = await mrRepo.count({ where: { status: MaintenanceRequestStatus.PENDING } });
+
+    const totalBookings = await bookingRepo.count();
+
+    return res.json({
+      totalAssets,
+      assetsByStatus,
+      totalAllocations,
+      activeAllocations,
+      totalMaintenance,
+      pendingMaintenance,
+      totalBookings
+    });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
