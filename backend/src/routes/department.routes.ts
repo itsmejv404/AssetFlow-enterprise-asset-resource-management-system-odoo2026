@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { In, Not, LessThan, Between } from 'typeorm';
 import { AppDataSource } from '../config/data-source';
 import { authenticateToken, requireRole } from '../middlewares/auth.middleware';
 import { Employee, EmployeeRole } from '../entities/Employee';
@@ -11,7 +12,9 @@ import { AuditCycle, AuditCycleStatus } from '../entities/AuditCycle';
 import { AuditRecord, AuditRecordResult } from '../entities/AuditRecord';
 import { ResourceBooking, ResourceBookingStatus } from '../entities/ResourceBooking';
 import { BookableResource } from '../entities/BookableResource';
+import { Notification, NotificationType } from '../entities/Notification';
 import { logAudit } from '../utils/audit';
+import { createNotification } from '../utils/notification';
 
 export const departmentRouter = Router();
 
@@ -135,12 +138,29 @@ departmentRouter.post('/allocations', async (req, res) => {
     const department = departmentId ? await departmentRepo.findOne({ where: { id: departmentId } }) : null;
 
     const activeAlloc = await allocationRepo.findOne({
-      where: { asset: { id: asset.id }, status: AllocationStatus.ACTIVE }
+      where: { asset: { id: asset.id }, status: AllocationStatus.ACTIVE },
+      relations: { allocatedToEmployee: true, allocatedToDepartment: true }
     });
     if (activeAlloc) {
-      activeAlloc.status = AllocationStatus.RETURNED;
-      activeAlloc.actualReturnDate = new Date();
-      await allocationRepo.save(activeAlloc);
+      const holderName = activeAlloc.allocatedToEmployee
+        ? activeAlloc.allocatedToEmployee.name
+        : activeAlloc.allocatedToDepartment
+        ? activeAlloc.allocatedToDepartment.name
+        : 'Unknown';
+      
+      const holderCode = activeAlloc.allocatedToEmployee
+        ? activeAlloc.allocatedToEmployee.employeeCode
+        : activeAlloc.allocatedToDepartment
+        ? activeAlloc.allocatedToDepartment.code
+        : '';
+
+      return res.status(400).json({
+        message: `Asset is already allocated to ${holderName}${holderCode ? ` (${holderCode})` : ''}`,
+        conflict: true,
+        currentHolder: `${holderName}${holderCode ? ` (${holderCode})` : ''}`,
+        currentAllocationId: activeAlloc.id,
+        asset: { id: asset.id, name: asset.name, assetTag: asset.assetTag }
+      });
     }
 
     const allocation = allocationRepo.create({
@@ -160,6 +180,18 @@ departmentRouter.post('/allocations', async (req, res) => {
     asset.currentHolderDepartment = department;
     await assetRepo.save(asset);
 
+    // Notify employee of allocation
+    if (employee) {
+      await createNotification(
+        employee.id,
+        NotificationType.ASSET_ASSIGNED,
+        'Asset Allocated to You',
+        `Asset ${asset.name} (${asset.assetTag}) has been allocated to you by ${auth.name}.`,
+        'Asset',
+        asset.id
+      );
+    }
+
     await logAudit(
       auth.employeeId,
       'ALLOCATE',
@@ -169,6 +201,89 @@ departmentRouter.post('/allocations', async (req, res) => {
     );
 
     return res.status(201).json(allocation);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+departmentRouter.post('/transfers', async (req, res) => {
+  const auth = req.auth!;
+  const { assetId, requestedToEmployeeId, requestedToDepartmentId, reason } = req.body as {
+    assetId: string;
+    requestedToEmployeeId?: string;
+    requestedToDepartmentId?: string;
+    reason?: string;
+  };
+
+  if (!assetId) {
+    return res.status(400).json({ message: 'AssetId is required' });
+  }
+
+  try {
+    const deptId = await getDeptId(auth.employeeId);
+    const assetRepo = AppDataSource.getRepository(Asset);
+    const asset = await assetRepo.findOne({ where: { id: assetId } });
+    if (!asset) return res.status(404).json({ message: 'Asset not found' });
+
+    const allocationRepo = AppDataSource.getRepository(AssetAllocation);
+    const currentAllocation = await allocationRepo.findOne({
+      where: { asset: { id: assetId }, status: AllocationStatus.ACTIVE },
+      relations: { allocatedToEmployee: { department: true }, allocatedToDepartment: true }
+    });
+
+    if (!currentAllocation) {
+      return res.status(400).json({ message: 'Asset is not currently allocated to anyone' });
+    }
+
+    const employeeRepo = AppDataSource.getRepository(Employee);
+    const departmentRepo = AppDataSource.getRepository(Department);
+
+    let requestedToEmployee: Employee | null = null;
+    if (requestedToEmployeeId) {
+      requestedToEmployee = await employeeRepo.findOne({ where: { id: requestedToEmployeeId }, relations: { department: true } });
+      if (!requestedToEmployee || !requestedToEmployee.department || requestedToEmployee.department.id !== deptId) {
+        return res.status(403).json({ message: 'Cannot request transfer to employees outside your department' });
+      }
+    }
+
+    let requestedToDepartment: Department | null = null;
+    if (requestedToDepartmentId) {
+      requestedToDepartment = await departmentRepo.findOne({ where: { id: requestedToDepartmentId } });
+      if (!requestedToDepartment || requestedToDepartment.id !== deptId) {
+        return res.status(403).json({ message: 'Cannot request transfer to other departments' });
+      }
+    }
+
+    if (!requestedToEmployee && !requestedToDepartment) {
+      return res.status(400).json({ message: 'Either requestedToEmployeeId or requestedToDepartmentId must be provided' });
+    }
+
+    const transferRepo = AppDataSource.getRepository(TransferRequest);
+    const transfer = transferRepo.create({
+      asset,
+      currentAllocation,
+      requestedBy: { id: auth.employeeId } as Employee,
+      requestedToEmployee: requestedToEmployee || undefined,
+      requestedToDepartment: requestedToDepartment || undefined,
+      reason,
+      status: TransferRequestStatus.REQUESTED
+    });
+
+    await transferRepo.save(transfer);
+
+    if (currentAllocation.allocatedToEmployee) {
+      await createNotification(
+        currentAllocation.allocatedToEmployee.id,
+        NotificationType.TRANSFER_APPROVED,
+        'Transfer Requested',
+        `A transfer request has been initiated for asset ${asset.name} (${asset.assetTag}) currently allocated to you.`,
+        'TransferRequest',
+        transfer.id
+      );
+    }
+
+    await logAudit(auth.employeeId, 'CREATE_TRANSFER_REQUEST', 'TransferRequest', transfer.id, { assetId });
+    return res.status(201).json(transfer);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -530,6 +645,19 @@ departmentRouter.get('/bookings', async (req, res) => {
         bookedForDepartment: true
       }
     });
+
+    // Dynamically calculate status based on current time
+    const now = new Date();
+    for (const bk of bookings) {
+      if (bk.status !== ResourceBookingStatus.CANCELLED) {
+        if (now > bk.endTime) {
+          bk.status = ResourceBookingStatus.COMPLETED;
+        } else if (now >= bk.startTime) {
+          bk.status = ResourceBookingStatus.ONGOING;
+        }
+      }
+    }
+
     return res.json(bookings);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
@@ -549,6 +677,13 @@ departmentRouter.post('/bookings', async (req, res) => {
     return res.status(400).json({ message: 'ResourceId, startTime, and endTime are required' });
   }
 
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+    return res.status(400).json({ message: 'Invalid start or end time' });
+  }
+
   try {
     const deptId = await getDeptId(auth.employeeId);
 
@@ -563,16 +698,39 @@ departmentRouter.post('/bookings', async (req, res) => {
     }
 
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+
+    // Overlap check
+    const overlap = await bookingRepo.createQueryBuilder('booking')
+      .where('booking.resource_id = :resourceId', { resourceId })
+      .andWhere('booking.status != :cancelled', { cancelled: ResourceBookingStatus.CANCELLED })
+      .andWhere('booking.start_time < :end', { end })
+      .andWhere('booking.end_time > :start', { start })
+      .getOne();
+
+    if (overlap) {
+      return res.status(400).json({ message: 'Overlapping booking exists for this resource' });
+    }
+
     const booking = bookingRepo.create({
       resource,
-      startTime: new Date(startTime),
-      endTime: new Date(endTime),
+      startTime: start,
+      endTime: end,
       bookedBy: { id: auth.employeeId } as Employee,
       bookedForDepartment: departmentId ? { id: departmentId } as Department : { id: deptId } as Department,
       status: ResourceBookingStatus.UPCOMING
     });
 
     await bookingRepo.save(booking);
+
+    // Send confirmation notification
+    await createNotification(
+      booking.bookedBy.id,
+      NotificationType.BOOKING_CONFIRMED,
+      'Booking Confirmed',
+      `Booking for resource ${resource.name} has been confirmed for ${start.toLocaleString()} to ${end.toLocaleString()}.`,
+      'ResourceBooking',
+      booking.id
+    );
 
     await logAudit(
       auth.employeeId,
@@ -597,7 +755,7 @@ departmentRouter.post('/bookings/:id/cancel', async (req, res) => {
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
     const booking = await bookingRepo.findOne({
       where: { id },
-      relations: { bookedBy: true, bookedForDepartment: true }
+      relations: { bookedBy: true, bookedForDepartment: true, resource: true }
     });
 
     if (!booking) {
@@ -613,6 +771,16 @@ departmentRouter.post('/bookings/:id/cancel', async (req, res) => {
 
     booking.status = ResourceBookingStatus.CANCELLED;
     await bookingRepo.save(booking);
+
+    // Notify employee of cancellation
+    await createNotification(
+      booking.bookedBy.id,
+      NotificationType.BOOKING_CANCELLED,
+      'Booking Cancelled',
+      `Your booking for resource ${booking.resource.name} has been cancelled by department head.`,
+      'ResourceBooking',
+      booking.id
+    );
 
     await logAudit(
       auth.employeeId,
@@ -637,7 +805,7 @@ departmentRouter.put('/bookings/:id', async (req, res) => {
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
     const booking = await bookingRepo.findOne({
       where: { id },
-      relations: { bookedBy: true, bookedForDepartment: true }
+      relations: { bookedBy: true, bookedForDepartment: true, resource: true }
     });
 
     if (!booking) {
@@ -651,8 +819,30 @@ departmentRouter.put('/bookings/:id', async (req, res) => {
       return res.status(403).json({ message: 'Cannot reschedule bookings belonging to another department' });
     }
 
-    if (startTime) booking.startTime = new Date(startTime);
-    if (endTime) booking.endTime = new Date(endTime);
+    const start = startTime ? new Date(startTime) : booking.startTime;
+    const end = endTime ? new Date(endTime) : booking.endTime;
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+      return res.status(400).json({ message: 'Invalid start or end time' });
+    }
+
+    // Overlap check
+    if (startTime || endTime) {
+      const overlap = await bookingRepo.createQueryBuilder('booking')
+        .where('booking.resource_id = :resourceId', { resourceId: booking.resource.id })
+        .andWhere('booking.status != :cancelled', { cancelled: ResourceBookingStatus.CANCELLED })
+        .andWhere('booking.start_time < :end', { end })
+        .andWhere('booking.end_time > :start', { start })
+        .andWhere('booking.id != :bookingId', { bookingId: id })
+        .getOne();
+
+      if (overlap) {
+        return res.status(400).json({ message: 'Overlapping booking exists for this resource' });
+      }
+    }
+
+    if (startTime) booking.startTime = start;
+    if (endTime) booking.endTime = end;
     await bookingRepo.save(booking);
 
     await logAudit(

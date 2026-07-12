@@ -19,9 +19,12 @@ function AppShell({ title, eyebrow = 'AssetFlow', session, onLogout, navItems = 
   return (
     <div className="app-shell">
       <header className="top-nav">
-        <div className="top-nav-brand">
-          <span className="top-nav-eyebrow">{eyebrow}</span>
-          <h1 className="top-nav-title">{title}</h1>
+        <div className="top-nav-brand" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '0.75rem' }}>
+          <img src="/assetflowLogo.png" alt="AssetFlow Logo" style={{ height: '2.25rem', width: 'auto', objectFit: 'contain' }} />
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <span className="top-nav-eyebrow">{eyebrow}</span>
+            <h1 className="top-nav-title">{title}</h1>
+          </div>
         </div>
         <div className="top-nav-user">
           <div className="top-nav-user-info hidden sm:flex">
@@ -57,7 +60,7 @@ function AppShell({ title, eyebrow = 'AssetFlow', session, onLogout, navItems = 
 
           {hubLink ? (
             <div className="hub-link-section">
-              <Link to="/dashboard">← Dashboard hub</Link>
+              {/* <Link to="/dashboard">← Dashboard hub</Link> */}
             </div>
           ) : null}
         </aside>
@@ -73,6 +76,396 @@ function AppShell({ title, eyebrow = 'AssetFlow', session, onLogout, navItems = 
 function StatusMessage({ type, children }) {
   if (!children) return null
   return <p className={type === 'error' ? 'status-error' : 'status-success'}>{children}</p>
+}
+
+function formatStatus(status) {
+  if (!status) return '—'
+  return status
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
+}
+
+
+
+function ReportsView({ token, categories, departments }) {
+  const [reportType, setReportType] = useState('assets')
+  const [filters, setFilters] = useState({
+    startDate: '',
+    endDate: '',
+    categoryId: '',
+    departmentId: '',
+    location: '',
+    status: ''
+  })
+  const [loading, setLoading] = useState(false)
+  const [reportData, setReportData] = useState(null)
+  const [error, setError] = useState('')
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({ ...prev, [key]: value }))
+  }
+
+  const runReport = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const queryParams = new URLSearchParams()
+      Object.entries(filters).forEach(([key, val]) => {
+        if (val) queryParams.append(key, val)
+      })
+      
+      const endpoint = `/api/admin/reports/${reportType}?${queryParams.toString()}`
+      const data = await apiRequest(endpoint, {}, token)
+      setReportData(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    runReport()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportType])
+
+  const getRows = () => {
+    if (!reportData) return []
+    let raw = []
+    if (reportType === 'assets') raw = reportData.assets || []
+    else if (reportType === 'maintenance') raw = reportData.requests || []
+    else raw = Array.isArray(reportData) ? reportData : []
+
+    return raw.map(item => {
+      if (reportType === 'assets') {
+        return {
+          ID: item.id,
+          Name: item.name,
+          Tag: item.assetTag,
+          Serial: item.serialNumber || '—',
+          Status: formatStatus(item.status),
+          Condition: item.condition || '—',
+          Location: item.location || '—',
+          Category: item.category?.name || '—',
+          Holder: item.currentHolderEmployee?.name || item.currentHolderDepartment?.name || '—'
+        }
+      }
+      if (reportType === 'maintenance') {
+        return {
+          ID: item.id,
+          Asset: item.asset?.name || '—',
+          RaisedBy: item.raisedBy?.name || '—',
+          Description: item.issueDescription,
+          Priority: formatStatus(item.priority),
+          Status: formatStatus(item.status),
+          Cost: item.cost ? `$${item.cost}` : '—',
+          Downtime: item.actualDowntime ? `${item.actualDowntime} hours` : '—',
+          Notes: item.resolutionNotes || '—'
+        }
+      }
+      if (reportType === 'bookings') {
+        return {
+          ID: item.id,
+          Resource: item.resource?.name || '—',
+          BookedBy: item.bookedBy?.name || '—',
+          Start: new Date(item.startTime).toLocaleString(),
+          End: new Date(item.endTime).toLocaleString(),
+          Status: formatStatus(item.status)
+        }
+      }
+      return item
+    })
+  }
+
+  const exportToCSV = () => {
+    const rows = getRows()
+    if (rows.length === 0) return
+
+    const headers = Object.keys(rows[0]).filter(k => typeof rows[0][k] !== 'object')
+    const csvRows = []
+    csvRows.push(headers.join(','))
+
+    rows.forEach(row => {
+      const values = headers.map(header => {
+        const val = row[header]
+        const escaped = ('' + (val ?? '')).replace(/"/g, '""')
+        return `"${escaped}"`
+      })
+      csvRows.push(values.join(','))
+    })
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + csvRows.join('\n')
+    const encodedUri = encodeURI(csvContent)
+    const link = document.createElement('a')
+    link.setAttribute('href', encodedUri)
+    link.setAttribute('download', `${reportType}_report_${new Date().toISOString().split('T')[0]}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  const rows = getRows()
+
+  return (
+    <div className="reports-section bg-white border border-violet-100 rounded-xl p-6 shadow-sm">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h3 className="text-xl font-bold text-violet-950 m-0">Reports & Analytics</h3>
+          <p className="text-sm text-violet-500 m-0">Generate, filter and export operational logs</p>
+        </div>
+        {rows.length > 0 && (
+          <button
+            onClick={exportToCSV}
+            className="bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2 px-4 rounded-lg text-sm transition"
+          >
+            📥 Export CSV
+          </button>
+        )}
+      </div>
+
+      {/* Selector and Filters Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-violet-50/50 p-4 rounded-lg border border-violet-100">
+        <label className="text-xs font-semibold text-violet-700">
+          Report Category
+          <select
+            value={reportType}
+            onChange={e => setReportType(e.target.value)}
+            className="w-full mt-1 px-3 py-2 bg-white border border-violet-200 rounded-lg text-sm"
+          >
+            <option value="assets">Assets Inventory & Allocation</option>
+            <option value="maintenance">Maintenance Request Details</option>
+            <option value="departments">Department Spending & Asset Values</option>
+            <option value="bookings">Resource Booking Statistics</option>
+          </select>
+        </label>
+
+        <label className="text-xs font-semibold text-violet-700">
+          Start Date
+          <input
+            type="date"
+            value={filters.startDate}
+            onChange={e => handleFilterChange('startDate', e.target.value)}
+            className="w-full mt-1 px-3 py-2 bg-white border border-violet-200 rounded-lg text-sm"
+          />
+        </label>
+
+        <label className="text-xs font-semibold text-violet-700">
+          End Date
+          <input
+            type="date"
+            value={filters.endDate}
+            onChange={e => handleFilterChange('endDate', e.target.value)}
+            className="w-full mt-1 px-3 py-2 bg-white border border-violet-200 rounded-lg text-sm"
+          />
+        </label>
+
+        {reportType === 'assets' && (
+          <>
+            <label className="text-xs font-semibold text-violet-700">
+              Category
+              <select
+                value={filters.categoryId}
+                onChange={e => handleFilterChange('categoryId', e.target.value)}
+                className="w-full mt-1 px-3 py-2 bg-white border border-violet-200 rounded-lg text-sm"
+              >
+                <option value="">All Categories</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-violet-700">
+              Location
+              <input
+                type="text"
+                placeholder="e.g. Headquarters"
+                value={filters.location}
+                onChange={e => handleFilterChange('location', e.target.value)}
+                className="w-full mt-1 px-3 py-2 bg-white border border-violet-200 rounded-lg text-sm"
+              />
+            </label>
+            <label className="text-xs font-semibold text-violet-700">
+              Status
+              <select
+                value={filters.status}
+                onChange={e => handleFilterChange('status', e.target.value)}
+                className="w-full mt-1 px-3 py-2 bg-white border border-violet-200 rounded-lg text-sm"
+              >
+                <option value="">All Statuses</option>
+                <option value="available">Available</option>
+                <option value="allocated">Allocated</option>
+                <option value="under_maintenance">Under Maintenance</option>
+                <option value="retired">Retired</option>
+                <option value="disposed">Disposed</option>
+              </select>
+            </label>
+          </>
+        )}
+
+        {reportType === 'maintenance' && (
+          <label className="text-xs font-semibold text-violet-700">
+            Priority
+            <select
+              value={filters.status}
+              onChange={e => handleFilterChange('status', e.target.value)}
+              className="w-full mt-1 px-3 py-2 bg-white border border-violet-200 rounded-lg text-sm"
+            >
+              <option value="">All Priorities</option>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </label>
+        )}
+      </div>
+
+      <div className="flex justify-end gap-2 mb-6">
+        <button
+          onClick={() => {
+            setFilters({ startDate: '', endDate: '', categoryId: '', departmentId: '', location: '', status: '' })
+            setReportData(null)
+          }}
+          className="bg-neutral-100 hover:bg-neutral-200 text-neutral-700 font-semibold py-2 px-4 rounded-lg text-sm transition"
+        >
+          Reset Filters
+        </button>
+        <button
+          onClick={runReport}
+          className="bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2 px-6 rounded-lg text-sm transition"
+        >
+          {loading ? 'Running...' : 'Generate Report'}
+        </button>
+      </div>
+
+      {error && <p className="text-red-600 text-sm font-semibold mb-4">Error: {error}</p>}
+
+      {/* Metrics Row */}
+      {reportData && reportData.metrics && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          {Object.entries(reportData.metrics).map(([key, val]) => (
+            <div key={key} className="bg-violet-50/50 border border-violet-100 p-3 rounded-lg text-center shadow-xs">
+              <span className="block text-[11px] font-semibold text-violet-700 capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
+              <span className="block text-lg font-bold text-violet-950 mt-1">{val}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Report Table */}
+      <div className="overflow-x-auto">
+        {loading ? (
+          <p className="text-center text-sm text-violet-600 font-medium py-8">Fetching report metrics...</p>
+        ) : rows.length === 0 ? (
+          <p className="text-center text-sm text-neutral-500 py-8">No records match the current reporting filter.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                {Object.keys(rows[0]).map(header => (
+                  <th key={header}>{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, idx) => (
+                <tr key={idx}>
+                  {Object.keys(row).map(header => (
+                    <td key={header}>{'' + (row[header] ?? '—')}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function BookingCalendar({ bookings, onSelectTimeSlot }) {
+  const [currentDate, setCurrentDate] = useState(new Date())
+  
+  const year = currentDate.getFullYear()
+  const month = currentDate.getMonth()
+
+  const firstDayOfMonth = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+  const prevMonthDays = []
+  for (let i = 0; i < firstDayOfMonth; i++) {
+    prevMonthDays.push(null)
+  }
+
+  const currentMonthDays = []
+  for (let i = 1; i <= daysInMonth; i++) {
+    currentMonthDays.push(new Date(year, month, i))
+  }
+
+  const calendarDays = [...prevMonthDays, ...currentMonthDays]
+
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
+  function getBookingsForDate(date) {
+    if (!date) return []
+    const dateStr = date.toDateString()
+    return bookings.filter(bk => bk.status !== 'cancelled' && new Date(bk.startTime).toDateString() === dateStr)
+  }
+
+  return (
+    <div className="booking-calendar mt-5 rounded-xl border border-violet-100 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h4 className="font-bold text-violet-950 m-0">{monthNames[month]} {year}</h4>
+        <div className="flex gap-2">
+          <button type="button" className="btn btn-secondary py-1 px-3 text-xs" onClick={() => setCurrentDate(new Date(year, month - 1, 1))}>Prev</button>
+          <button type="button" className="btn btn-secondary py-1 px-3 text-xs" onClick={() => setCurrentDate(new Date())}>Today</button>
+          <button type="button" className="btn btn-secondary py-1 px-3 text-xs" onClick={() => setCurrentDate(new Date(year, month + 1, 1))}>Next</button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-7 gap-2 text-center font-semibold text-violet-600 text-xs mb-2">
+        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
+      </div>
+
+      <div className="grid grid-cols-7 gap-2">
+        {calendarDays.map((date, index) => {
+          if (!date) {
+            return <div key={`empty-${index}`} className="h-24 bg-neutral-50 rounded-lg opacity-45"></div>
+          }
+
+          const dayBookings = getBookingsForDate(date)
+          const isToday = date.toDateString() === new Date().toDateString()
+
+          return (
+            <div
+              key={`day-${date.getDate()}`}
+              className="h-24 border border-neutral-100 rounded-lg p-1.5 flex flex-col justify-between overflow-hidden cursor-pointer hover:border-violet-300 transition"
+              style={{ backgroundColor: isToday ? '#f5f3ff' : 'white', borderColor: isToday ? '#ddd6fe' : '#f3f4f6' }}
+              onClick={() => onSelectTimeSlot(date)}
+            >
+              <span className="font-bold text-xs" style={{ color: isToday ? '#7c3aed' : '#374151' }}>
+                {date.getDate()}
+              </span>
+              <div className="flex-1 overflow-y-auto mt-1 flex flex-col gap-1">
+                {dayBookings.slice(0, 3).map(bk => (
+                  <div key={bk.id} className="text-[9px] bg-violet-100 text-violet-900 px-1 py-0.5 rounded truncate" title={`${bk.resource?.name || 'Resource'}`}>
+                    {bk.resource?.name || 'Booked'}
+                  </div>
+                ))}
+                {dayBookings.length > 3 && (
+                  <div className="text-[8px] text-violet-600 font-semibold pl-1">
+                    +{dayBookings.length - 3} more
+                  </div>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function LoginPage({ session, onLogin }) {
@@ -113,7 +506,7 @@ function LoginPage({ session, onLogin }) {
     <main className="auth-page">
       <Card className="auth-card">
         <CardHeader className="p-0 pb-5">
-          <div className="auth-logo">AF</div>
+          <img src="/assetflowLogo.png" alt="AssetFlow Logo" className="auth-logo" style={{ background: 'none', boxShadow: 'none', objectFit: 'contain' }} />
           <CardTitle className="text-xl font-bold tracking-tight">Welcome back</CardTitle>
           <CardDescription className="text-sm">Sign in to manage assets, allocations, and audits.</CardDescription>
         </CardHeader>
@@ -145,12 +538,8 @@ function LoginPage({ session, onLogin }) {
             </Button>
           </form>
           <div className="mt-5 grid gap-3 border-t border-violet-100 pt-5 text-sm">
-            <Link to="/forgot-password" className="text-violet-600 hover:text-violet-800">Forgot password?</Link>
-            <div className="grid grid-cols-2 gap-1.5">
-              <Link to="/admin/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Admin</Link>
-              <Link to="/asset-manager/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Asset Manager</Link>
-              <Link to="/department-head/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Department Head</Link>
-              <Link to="/employee/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Employee</Link>
+            <div className="flex justify-between items-center">
+              <Link to="/forgot-password" className="text-violet-600 hover:text-violet-800">Forgot password?</Link>
             </div>
           </div>
         </CardContent>
@@ -189,7 +578,7 @@ function ForgotPasswordPage() {
     <main className="auth-page">
       <Card className="auth-card">
         <CardHeader className="p-0 pb-5">
-          <div className="auth-logo">AF</div>
+          <img src="/assetflowLogo.png" alt="AssetFlow Logo" className="auth-logo" style={{ background: 'none', boxShadow: 'none', objectFit: 'contain' }} />
           <CardTitle className="text-xl font-bold tracking-tight">Reset your password</CardTitle>
           <CardDescription>Enter your email and we&apos;ll send a reset link.</CardDescription>
         </CardHeader>
@@ -336,7 +725,8 @@ function ResetPasswordPage() {
 }
 
 function AdminDashboardView({ session, onLogout }) {
-  const [tab, setTab] = useState('departments')
+  const [tab, setTab] = useState('dashboard')
+  const [dashboardData, setDashboardData] = useState(null)
   const [departments, setDepartments] = useState([])
   const [categories, setCategories] = useState([])
   const [employees, setEmployees] = useState([])
@@ -348,6 +738,38 @@ function AdminDashboardView({ session, onLogout }) {
   const [auditCycles, setAuditCycles] = useState([])
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+
+  const fetchDashboardKpis = async () => {
+    try {
+      const endpoint = session.user.role === 'admin' ? '/api/dashboard/admin' : '/api/dashboard/asset-manager'
+      const data = await apiRequest(endpoint, {}, session.token)
+      setDashboardData(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleApproveReturn = async (id) => {
+    const notes = window.prompt('Enter return condition notes (optional):')
+    if (notes === null) return
+    const condition = window.prompt('Enter updated asset condition (e.g. Good, Fair, Damaged):', 'Good')
+    if (condition === null) return
+
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/admin/allocations/${id}/return`, {
+        method: 'POST',
+        body: JSON.stringify({ notes, assetCondition: condition })
+      }, session.token)
+      setSuccess('Return approved successfully')
+      fetchAllocations()
+      fetchAssets()
+      if (tab === 'dashboard') fetchDashboardKpis()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
 
   const [deptForm, setDeptForm] = useState({ name: '', code: '', parentDepartmentId: '' })
   const [editingDept, setEditingDept] = useState(null)
@@ -487,7 +909,9 @@ function AdminDashboardView({ session, onLogout }) {
     setAssigningAuditorsCycle(null)
     setSelectedAuditors([])
 
-    if (tab === 'departments') {
+    if (tab === 'dashboard') {
+      fetchDashboardKpis()
+    } else if (tab === 'departments') {
       fetchDepartments()
     } else if (tab === 'categories') {
       fetchCategories()
@@ -509,6 +933,9 @@ function AdminDashboardView({ session, onLogout }) {
       fetchAuditCycles()
       fetchDepartments()
       fetchEmployees()
+    } else if (tab === 'reports') {
+      fetchCategories()
+      fetchDepartments()
     } else if (tab === 'logs') {
       fetchLogs()
     }
@@ -1110,6 +1537,7 @@ function AdminDashboardView({ session, onLogout }) {
       activeTab={tab}
       onTabChange={setTab}
       navItems={[
+        { value: 'dashboard', label: 'Dashboard' },
         { value: 'departments', label: 'Departments' },
         { value: 'categories', label: 'Asset Categories' },
         { value: 'employees', label: 'Employees' },
@@ -1117,11 +1545,132 @@ function AdminDashboardView({ session, onLogout }) {
         { value: 'allocations', label: 'Allocations & Transfers' },
         { value: 'maintenance', label: 'Maintenance' },
         { value: 'audits', label: 'Audit Cycles' },
+        { value: 'reports', label: 'Reports & Analytics' },
         ...(session.user.role === 'admin' ? [{ value: 'logs', label: 'Audit Logs' }] : []),
       ]}
     >
         <StatusMessage type="error">{error ? `Error: ${error}` : ''}</StatusMessage>
         <StatusMessage type="success">{success}</StatusMessage>
+
+        {tab === 'dashboard' && dashboardData && dashboardData.kpis && (
+          <div className="dash-section animate-fade-in">
+            <div className="section-heading mb-6">
+              <h3>Operational Dashboard</h3>
+              <p className="text-sm text-violet-500 font-medium">Real-time status overview of enterprise assets</p>
+            </div>
+            
+            <div className="kpi-grid">
+              <div className="kpi-card">
+                <span className="kpi-card-label">Total Assets Available</span>
+                <span className="kpi-card-value accent">{dashboardData.kpis.totalAssetsAvailable}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Assets Allocated</span>
+                <span className="kpi-card-value">{dashboardData.kpis.assetsAllocated}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Maintenance Due Today</span>
+                <span className="kpi-card-value">{dashboardData.kpis.maintenanceDueToday}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Active Bookings</span>
+                <span className="kpi-card-value">{dashboardData.kpis.activeBookings}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Pending Transfers</span>
+                <span className="kpi-card-value">{dashboardData.kpis.pendingTransfers}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label" style={{ color: '#b91c1c' }}>Overdue Returns</span>
+                <span className="kpi-card-value" style={{ color: '#b91c1c' }}>{dashboardData.kpis.overdueReturnsCount}</span>
+              </div>
+            </div>
+
+            <div className="quick-actions-panel bg-white border border-violet-100 rounded-xl p-6 shadow-sm my-6">
+              <h4 className="font-bold text-violet-950 mb-4">Quick Actions</h4>
+              <div className="flex flex-wrap gap-4">
+                <button type="button" className="btn btn-primary" onClick={() => setTab('assets')}>
+                  Register Asset
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setTab('allocations')}>
+                  Allocate Resource
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setTab('maintenance')}>
+                  Raise Maintenance Request
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setTab('allocations')}>
+                  Initiate Transfer
+                </button>
+                <button type="button" className="btn btn-secondary" onClick={() => setTab('allocations')}>
+                  Return Asset
+                </button>
+              </div>
+            </div>
+
+            {dashboardData.upcomingReturnAlerts && dashboardData.upcomingReturnAlerts.length > 0 && (
+              <div className="alert-list bg-amber-50 border border-amber-200 rounded-xl p-5 my-6">
+                <h4 className="font-bold text-amber-900 mb-3">⚠️ Upcoming &amp; Overdue Returns Alert</h4>
+                <div className="grid gap-3">
+                  {dashboardData.upcomingReturnAlerts.map(alert => (
+                    <div key={alert.id} className="flex justify-between items-center bg-white border border-amber-100 rounded-lg p-3 shadow-sm">
+                      <div>
+                        <span className="font-bold text-sm text-neutral-800">{alert.asset?.name || alert.assetName}</span>
+                        <span className="text-xs text-neutral-500 block">Holder: {alert.allocatedToEmployee?.name || alert.holderName} | Expected Return: {new Date(alert.expectedReturnDate).toLocaleDateString()}</span>
+                      </div>
+                      <span className={`text-xs px-2 py-1 rounded font-bold uppercase ${alert.daysRemaining < 0 ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                        {alert.daysRemaining < 0 ? `${Math.abs(alert.daysRemaining)} Days Overdue` : `${alert.daysRemaining} Days Left`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+              <div className="bg-white border border-violet-100 rounded-xl p-5 shadow-sm">
+                <h4 className="font-bold text-violet-950 mb-3">Recent Maintenance Activities</h4>
+                {(!dashboardData.maintenanceSummary || dashboardData.maintenanceSummary.length === 0) ? (
+                  <p className="text-sm text-neutral-500">No recent maintenance requests.</p>
+                ) : (
+                  <div className="grid gap-2">
+                    {dashboardData.maintenanceSummary.slice(0, 5).map(req => (
+                      <div key={req.id} className="flex justify-between items-center border-b border-neutral-100 pb-2">
+                        <div>
+                          <span className="text-sm font-semibold text-neutral-800 block">{req.asset?.name || 'Asset'}</span>
+                          <span className="text-xs text-neutral-500 block">{req.issueDescription}</span>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded font-medium ${req.status === 'resolved' ? 'bg-green-100 text-green-800' : 'bg-violet-100 text-violet-800'}`}>
+                          {formatStatus(req.status)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white border border-violet-100 rounded-xl p-5 shadow-sm">
+                <h4 className="font-bold text-violet-950 mb-3">Recent Booking Activities</h4>
+                {(!dashboardData.bookingSummary || dashboardData.bookingSummary.length === 0) ? (
+                  <p className="text-sm text-neutral-500">No active bookings.</p>
+                ) : (
+                  <div className="grid gap-2">
+                    {dashboardData.bookingSummary.slice(0, 5).map(bk => (
+                      <div key={bk.id} className="flex justify-between items-center border-b border-neutral-100 pb-2">
+                        <div>
+                          <span className="text-sm font-semibold text-neutral-800 block">{bk.resource?.name || bk.resource?.linkedAsset?.name || 'Resource'}</span>
+                          <span className="text-xs text-neutral-500 block">{new Date(bk.startTime).toLocaleString()} to {new Date(bk.endTime).toLocaleString()}</span>
+                        </div>
+                        <span className="text-xs text-neutral-500 font-medium">
+                          {bk.bookedBy?.name || 'User'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {tab === 'departments' && (
           <DepartmentsTab
@@ -1216,6 +1765,7 @@ function AdminDashboardView({ session, onLogout }) {
             handleCreateAllocation={handleCreateAllocation}
             handleApproveTransfer={handleApproveTransfer}
             handleRejectTransfer={handleRejectTransfer}
+            handleApproveReturn={handleApproveReturn}
           />
         )}
         {tab === 'maintenance' && (
@@ -1251,6 +1801,9 @@ function AdminDashboardView({ session, onLogout }) {
             handleCloseAuditCycle={handleCloseAuditCycle}
             isAdmin={session.user.role === 'admin'}
           />
+        )}
+        {tab === 'reports' && (
+          <ReportsView token={session.token} categories={categories} departments={departments} />
         )}
         {tab === 'logs' && <LogsTab logs={logs} />}
     </AppShell>
@@ -1839,7 +2392,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
                       </td>
                       <td>{new Date(alloc.allocatedDate).toLocaleDateString()}</td>
                       <td>{alloc.expectedReturnDate ? new Date(alloc.expectedReturnDate).toLocaleDateString() : '-'}</td>
-                      <td>{alloc.status}</td>
+                      <td>{formatStatus(alloc.status)}</td>
                     </tr>
                   ))
                 )}
@@ -1883,7 +2436,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
                           : '-'}
                       </td>
                       <td>{tr.reason || '-'}</td>
-                      <td>{tr.status}</td>
+                      <td>{formatStatus(tr.status)}</td>
                       <td>
                         {tr.status === 'requested' ? (
                           <>
@@ -1967,8 +2520,8 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
                       <td>{req.asset?.name} ({req.asset?.assetTag})</td>
                       <td>{req.raisedBy?.name}</td>
                       <td>{req.issueDescription}</td>
-                      <td>{req.priority}</td>
-                      <td>{req.status}</td>
+                      <td>{formatStatus(req.priority)}</td>
+                      <td>{formatStatus(req.status)}</td>
                       <td>{req.technicianName || '-'}</td>
                     </tr>
                   ))
@@ -2001,7 +2554,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
                       <td>{cycle.name}</td>
                       <td>{cycle.scopeDepartment?.name || 'All'}</td>
                       <td>{cycle.scopeLocation || 'All'}</td>
-                      <td>{cycle.status}</td>
+                      <td>{formatStatus(cycle.status)}</td>
                       <td>{new Date(cycle.startDate).toLocaleDateString()} to {new Date(cycle.endDate).toLocaleDateString()}</td>
                       <td>
                         {cycle.status === 'in_progress' && (
@@ -2126,6 +2679,20 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
               <button type="submit">Book Resource</button>
             </form>
 
+            <BookingCalendar
+              bookings={bookings}
+              onSelectTimeSlot={date => {
+                const year = date.getFullYear()
+                const month = String(date.getMonth() + 1).padStart(2, '0')
+                const day = String(date.getDate()).padStart(2, '0')
+                setBookingForm(prev => ({
+                  ...prev,
+                  startTime: `${year}-${month}-${day}T09:00`,
+                  endTime: `${year}-${month}-${day}T17:00`
+                }))
+              }}
+            />
+
             <hr />
             <h4>Department & Personal Bookings</h4>
             <table>
@@ -2209,6 +2776,21 @@ function EmployeeDashboardView({ session, onLogout }) {
     try {
       const data = await apiRequest('/api/employee/my/assets', {}, session.token)
       setMyAssets(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const handleRequestReturn = async (id) => {
+    if (!window.confirm('Are you sure you want to request a return for this asset?')) return
+    setError('')
+    setSuccess('')
+    try {
+      await apiRequest(`/api/employee/assets/${id}/request-return`, {
+        method: 'POST'
+      }, session.token)
+      setSuccess('Return request submitted successfully')
+      fetchMyAssets()
     } catch (err) {
       setError(err.message)
     }
@@ -2524,6 +3106,8 @@ function EmployeeDashboardView({ session, onLogout }) {
                           setSelectedAsset(asset)
                           fetchAssetHistory(asset.id)
                         }}>View History</button>
+                        {' '}
+                        <button type="button" onClick={() => handleRequestReturn(asset.id)}>Request Return</button>
                       </td>
                     </tr>
                   ))
@@ -2659,6 +3243,20 @@ function EmployeeDashboardView({ session, onLogout }) {
                 <button type="button" onClick={() => { setEditingBooking(null); setBookingForm({ resourceId: '', startTime: '', endTime: '' }) }}>Cancel Edit</button>
               )}
             </form>
+
+            <BookingCalendar
+              bookings={bookings}
+              onSelectTimeSlot={date => {
+                const year = date.getFullYear()
+                const month = String(date.getMonth() + 1).padStart(2, '0')
+                const day = String(date.getDate()).padStart(2, '0')
+                setBookingForm(prev => ({
+                  ...prev,
+                  startTime: `${year}-${month}-${day}T09:00`,
+                  endTime: `${year}-${month}-${day}T17:00`
+                }))
+              }}
+            />
 
             <hr />
             <h4>My Bookings</h4>
@@ -2833,8 +3431,8 @@ function EmployeeDashboardView({ session, onLogout }) {
                     <tr key={req.id}>
                       <td>{req.asset?.name} ({req.asset?.assetTag})</td>
                       <td>{req.issueDescription}</td>
-                      <td>{req.priority}</td>
-                      <td>{req.status}</td>
+                      <td>{formatStatus(req.priority)}</td>
+                      <td>{formatStatus(req.status)}</td>
                     </tr>
                   ))
                 )}
@@ -2863,7 +3461,7 @@ function EmployeeDashboardView({ session, onLogout }) {
                     <tr key={cycle.id}>
                       <td>{cycle.name}</td>
                       <td>{cycle.scopeDepartment?.name || 'All'}</td>
-                      <td>{cycle.status}</td>
+                      <td>{formatStatus(cycle.status)}</td>
                       <td>
                         <button type="button" onClick={() => {
                           setSelectedCycleId(cycle.id)

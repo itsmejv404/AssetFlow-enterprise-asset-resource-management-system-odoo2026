@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import { In, LessThan, Between } from 'typeorm';
 import { authenticateToken, requireRole } from '../middlewares/auth.middleware';
 import { Employee, EmployeeRole } from '../entities/Employee';
-import { Asset } from '../entities/Asset';
+import { Asset, AssetStatus } from '../entities/Asset';
 import { AssetAllocation, AllocationStatus } from '../entities/AssetAllocation';
 import { TransferRequest, TransferRequestStatus } from '../entities/TransferRequest';
 import { MaintenanceRequest, MaintenanceRequestStatus } from '../entities/MaintenanceRequest';
@@ -11,20 +12,133 @@ import { AppDataSource } from '../config/data-source';
 
 export const dashboardRouter = Router();
 
-dashboardRouter.get('/admin', authenticateToken, requireRole(EmployeeRole.ADMIN), (req, res) => {
-  res.json({
-    dashboard: 'admin',
-    title: 'Admin Dashboard',
-    user: req.auth
+async function getAdminManagerDashboardData(req: any) {
+  const assetRepo = AppDataSource.getRepository(Asset);
+  const allocationRepo = AppDataSource.getRepository(AssetAllocation);
+  const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+  const mrRepo = AppDataSource.getRepository(MaintenanceRequest);
+  const transferRepo = AppDataSource.getRepository(TransferRequest);
+
+  const now = new Date();
+
+  // 1. Total Assets Available
+  const totalAssetsAvailable = await assetRepo.count({ where: { status: AssetStatus.AVAILABLE } });
+
+  // 2. Assets Allocated
+  const assetsAllocated = await assetRepo.count({ where: { status: AssetStatus.ALLOCATED } });
+
+  // 3. Maintenance Due Today (Unresolved maintenance requests)
+  const maintenanceDueToday = await mrRepo.count({
+    where: {
+      status: In([
+        MaintenanceRequestStatus.PENDING,
+        MaintenanceRequestStatus.APPROVED,
+        MaintenanceRequestStatus.TECHNICIAN_ASSIGNED,
+        MaintenanceRequestStatus.IN_PROGRESS
+      ])
+    }
   });
+
+  // 4. Active Bookings
+  const activeBookings = await bookingRepo.count({
+    where: {
+      status: In([ResourceBookingStatus.UPCOMING, ResourceBookingStatus.ONGOING])
+    }
+  });
+
+  // 5. Pending Transfers
+  const pendingTransfers = await transferRepo.count({ where: { status: TransferRequestStatus.REQUESTED } });
+
+  // 6. Upcoming Returns
+  const upcomingReturns = await allocationRepo.count({
+    where: {
+      status: AllocationStatus.ACTIVE,
+      expectedReturnDate: Between(now, new Date(Date.now() + 1000 * 60 * 60 * 24 * 30))
+    }
+  });
+
+  // 7. Overdue returns
+  const overdueReturnsList = await allocationRepo.find({
+    where: {
+      status: AllocationStatus.ACTIVE,
+      expectedReturnDate: LessThan(now)
+    },
+    relations: {
+      asset: true,
+      allocatedToEmployee: true,
+      allocatedToDepartment: true
+    }
+  });
+
+  // 8. Upcoming return alerts (next 3 days)
+  const threeDaysFromNow = new Date(Date.now() + 1000 * 60 * 60 * 24 * 3);
+  const upcomingReturnAlerts = await allocationRepo.find({
+    where: {
+      status: AllocationStatus.ACTIVE,
+      expectedReturnDate: Between(now, threeDaysFromNow)
+    },
+    relations: {
+      asset: true,
+      allocatedToEmployee: true,
+      allocatedToDepartment: true
+    }
+  });
+
+  // 9. Maintenance activity summary (recent 5 requests)
+  const maintenanceSummary = await mrRepo.find({
+    relations: { asset: true, raisedBy: true },
+    order: { createdAt: 'DESC' },
+    take: 5
+  });
+
+  // 10. Booking activity summary (recent 5 bookings)
+  const bookingSummary = await bookingRepo.find({
+    relations: { resource: { linkedAsset: true }, bookedBy: true },
+    order: { createdAt: 'DESC' },
+    take: 5
+  });
+
+  return {
+    title: 'Operational Dashboard',
+    user: req.auth,
+    kpis: {
+      totalAssetsAvailable,
+      assetsAllocated,
+      maintenanceDueToday,
+      activeBookings,
+      pendingTransfers,
+      upcomingReturns,
+      overdueReturnsCount: overdueReturnsList.length
+    },
+    overdueReturns: overdueReturnsList,
+    upcomingReturnAlerts,
+    maintenanceSummary,
+    bookingSummary
+  };
+}
+
+dashboardRouter.get('/admin', authenticateToken, requireRole(EmployeeRole.ADMIN), async (req, res) => {
+  try {
+    const data = await getAdminManagerDashboardData(req);
+    return res.json({
+      dashboard: 'admin',
+      ...data
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
 });
 
-dashboardRouter.get('/asset-manager', authenticateToken, requireRole(EmployeeRole.ASSET_MANAGER), (req, res) => {
-  res.json({
-    dashboard: 'asset-manager',
-    title: 'Asset Manager Dashboard',
-    user: req.auth
-  });
+dashboardRouter.get('/asset-manager', authenticateToken, requireRole(EmployeeRole.ASSET_MANAGER), async (req, res) => {
+  try {
+    const data = await getAdminManagerDashboardData(req);
+    return res.json({
+      dashboard: 'asset-manager',
+      ...data
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
 });
 
 dashboardRouter.get('/department-head', authenticateToken, requireRole(EmployeeRole.DEPARTMENT_HEAD), async (req, res) => {

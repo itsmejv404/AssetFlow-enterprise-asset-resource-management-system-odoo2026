@@ -1,5 +1,13 @@
 import React, { useState, useMemo } from 'react';
 
+function formatStatus(status) {
+  if (!status) return '—';
+  return status
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 export function AllocationsTab({
   allocations,
   transfers,
@@ -10,7 +18,8 @@ export function AllocationsTab({
   setAllocationForm,
   handleCreateAllocation,
   handleApproveTransfer,
-  handleRejectTransfer
+  handleRejectTransfer,
+  handleApproveReturn
 }) {
   // ── Allocations search & filter ────────────────────────────
   const [allocSearch, setAllocSearch] = useState('');
@@ -144,6 +153,7 @@ export function AllocationsTab({
           >
             <option value="">All</option>
             <option value="active">Active</option>
+            <option value="return_requested">Return Requested</option>
             <option value="returned">Returned</option>
             <option value="transferred">Transferred</option>
           </select>
@@ -169,11 +179,12 @@ export function AllocationsTab({
             <th>Expected Return</th>
             <th>Allocated By</th>
             <th>Status</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
           {filteredAllocations.length === 0 ? (
-            <tr><td colSpan="6">{hasAllocFilters ? 'No allocations match the current filters.' : 'No resource allocations found.'}</td></tr>
+            <tr><td colSpan="7">{hasAllocFilters ? 'No allocations match the current filters.' : 'No resource allocations found.'}</td></tr>
           ) : (
             filteredAllocations.map(alloc => (
               <tr key={alloc.id}>
@@ -188,7 +199,14 @@ export function AllocationsTab({
                 <td>{new Date(alloc.allocatedDate).toLocaleDateString()}</td>
                 <td>{alloc.expectedReturnDate ? new Date(alloc.expectedReturnDate).toLocaleDateString() : '-'}</td>
                 <td>{alloc.allocatedBy?.name || 'System'}</td>
-                <td>{alloc.status}</td>
+                <td>{formatStatus(alloc.status)}</td>
+                <td>
+                  {(alloc.status === 'active' || alloc.status === 'return_requested') && handleApproveReturn ? (
+                    <button type="button" onClick={() => handleApproveReturn(alloc.id)}>Approve Return</button>
+                  ) : (
+                    <span>-</span>
+                  )}
+                </td>
               </tr>
             ))
           )}
@@ -269,7 +287,7 @@ export function AllocationsTab({
                     : '-'}
                 </td>
                 <td>{req.reason || '-'}</td>
-                <td>{req.status}</td>
+                <td>{formatStatus(req.status)}</td>
                 <td>
                   {req.status === 'requested' ? (
                     <>

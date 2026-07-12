@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import { AppDataSource } from '../config/data-source';
 import { env } from '../config/env';
 import { User } from '../entities/User';
-import { Employee } from '../entities/Employee';
+import { Employee, EmployeeRole } from '../entities/Employee';
 import { authenticateToken } from '../middlewares/auth.middleware';
 import { signAuthToken } from '../auth/jwt';
 import { mailer } from '../utils/mailer';
@@ -15,6 +15,73 @@ export const authRouter = Router();
 function hashResetToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
+
+authRouter.post('/signup', async (req, res) => {
+  const { name, email, password } = req.body as { name?: string; email?: string; password?: string };
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: 'Name, email, and password are required' });
+  }
+
+  try {
+    const userRepo = AppDataSource.getRepository(User);
+    const employeeRepo = AppDataSource.getRepository(Employee);
+
+    const existingUser = await userRepo.findOne({ where: { email } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email address already registered' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+
+    const user = userRepo.create({
+      email,
+      passwordHash,
+      isActive: true
+    });
+    await userRepo.save(user);
+
+    const employee = employeeRepo.create({
+      name,
+      user,
+      role: EmployeeRole.EMPLOYEE,
+      isActive: true
+    });
+    await employeeRepo.save(employee);
+
+    await logAudit(
+      employee.id,
+      'SIGNUP',
+      'User',
+      user.id,
+      { email }
+    );
+
+    const token = signAuthToken({
+      employeeId: employee.id,
+      userId: user.id,
+      role: employee.role,
+      email: user.email,
+      employeeCode: employee.employeeCode,
+      name: employee.name
+    });
+
+    return res.status(201).json({
+      token,
+      user: {
+        employeeId: employee.id,
+        userId: user.id,
+        role: employee.role,
+        email: user.email,
+        employeeCode: employee.employeeCode,
+        name: employee.name,
+        department: null
+      }
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
 
 authRouter.post('/forgot-password', async (req, res) => {
   const { email } = req.body as { email?: string };

@@ -6,7 +6,8 @@ import { Employee } from './Employee';
 export enum AllocationStatus {
   ACTIVE = 'active',
   RETURNED = 'returned',
-  TRANSFERRED = 'transferred'
+  TRANSFERRED = 'transferred',
+  RETURN_REQUESTED = 'return_requested'
 }
 
 @Entity('asset_allocations')

@@ -64,6 +64,12 @@ export class MaintenanceRequest {
   @Column({ name: 'resolution_notes', type: 'text', nullable: true })
   resolutionNotes?: string | null;
 
+  @Column({ name: 'cost', type: 'numeric', precision: 10, scale: 2, nullable: true })
+  cost?: number | null;
+
+  @Column({ name: 'actual_downtime', type: 'integer', nullable: true })
+  actualDowntime?: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt!: Date;
 

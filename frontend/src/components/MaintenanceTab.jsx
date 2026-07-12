@@ -1,5 +1,13 @@
 import React, { useState, useMemo } from 'react';
 
+function formatStatus(status) {
+  if (!status) return '—';
+  return status
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
 export function MaintenanceTab({
   maintenanceRequests,
   rejectingMaintenanceId,
@@ -159,8 +167,8 @@ export function MaintenanceTab({
                 <td>{req.asset?.name} ({req.asset?.assetTag})</td>
                 <td>{req.raisedBy?.name}</td>
                 <td>{req.issueDescription}</td>
-                <td>{req.priority}</td>
-                <td>{req.status}</td>
+                <td>{formatStatus(req.priority)}</td>
+                <td>{formatStatus(req.status)}</td>
                 <td>{req.technicianName || 'Unassigned'}</td>
                 <td>
                   {req.status === 'pending' ? (

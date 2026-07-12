@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { In, Not, LessThan, Between } from 'typeorm';
 import { AppDataSource } from '../config/data-source';
 import { authenticateToken, requireRole } from '../middlewares/auth.middleware';
 import { Employee, EmployeeRole } from '../entities/Employee';
@@ -10,8 +11,9 @@ import { BookableResource } from '../entities/BookableResource';
 import { MaintenanceRequest, MaintenanceRequestStatus, MaintenancePriority } from '../entities/MaintenanceRequest';
 import { AuditCycle, AuditCycleStatus } from '../entities/AuditCycle';
 import { AuditRecord, AuditRecordResult } from '../entities/AuditRecord';
-import { Notification } from '../entities/Notification';
+import { Notification, NotificationType } from '../entities/Notification';
 import { logAudit } from '../utils/audit';
+import { createNotification } from '../utils/notification';
 
 export const employeeRouter = Router();
 
@@ -91,6 +93,35 @@ employeeRouter.get('/my/assets', async (req, res) => {
       relations: { category: true }
     });
     return res.json(assets);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+employeeRouter.post('/assets/:id/request-return', async (req, res) => {
+  const auth = getAuth(req);
+  const assetId = req.params.id;
+
+  try {
+    const allocationRepo = AppDataSource.getRepository(AssetAllocation);
+    const allocation = await allocationRepo.findOne({
+      where: {
+        asset: { id: assetId },
+        status: AllocationStatus.ACTIVE,
+        allocatedToEmployee: { id: auth.employeeId }
+      },
+      relations: { asset: true }
+    });
+
+    if (!allocation) {
+      return res.status(404).json({ message: 'Active allocation for this asset not found or not allocated to you' });
+    }
+
+    allocation.status = AllocationStatus.RETURN_REQUESTED;
+    await allocationRepo.save(allocation);
+
+    await logAudit(auth.employeeId, 'REQUEST_RETURN', 'AssetAllocation', allocation.id, { assetId });
+    return res.json({ message: 'Return request submitted successfully', allocation });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -184,6 +215,19 @@ employeeRouter.get('/my/bookings', async (req, res) => {
       where: { bookedBy: { id: auth.employeeId } },
       relations: { resource: { linkedAsset: true } }
     });
+
+    // Dynamically calculate status based on current time
+    const now = new Date();
+    for (const bk of bookings) {
+      if (bk.status !== ResourceBookingStatus.CANCELLED) {
+        if (now > bk.endTime) {
+          bk.status = ResourceBookingStatus.COMPLETED;
+        } else if (now >= bk.startTime) {
+          bk.status = ResourceBookingStatus.ONGOING;
+        }
+      }
+    }
+
     return res.json(bookings);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
@@ -194,21 +238,55 @@ employeeRouter.post('/bookings', async (req, res) => {
   const auth = getAuth(req);
   const { resourceId, startTime, endTime } = req.body as { resourceId: string; startTime: string; endTime: string };
 
+  if (!resourceId || !startTime || !endTime) {
+    return res.status(400).json({ message: 'ResourceId, startTime, and endTime are required' });
+  }
+
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+    return res.status(400).json({ message: 'Invalid start or end time' });
+  }
+
   try {
     const resourceRepo = AppDataSource.getRepository(BookableResource);
     const resource = await resourceRepo.findOne({ where: { id: resourceId } });
     if (!resource) return res.status(404).json({ message: 'Resource not found' });
 
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+
+    // Overlap check
+    const overlap = await bookingRepo.createQueryBuilder('booking')
+      .where('booking.resource_id = :resourceId', { resourceId })
+      .andWhere('booking.status != :cancelled', { cancelled: ResourceBookingStatus.CANCELLED })
+      .andWhere('booking.start_time < :end', { end })
+      .andWhere('booking.end_time > :start', { start })
+      .getOne();
+
+    if (overlap) {
+      return res.status(400).json({ message: 'Overlapping booking exists for this resource' });
+    }
+
     const booking = bookingRepo.create({
       resource,
-      startTime: new Date(startTime),
-      endTime: new Date(endTime),
+      startTime: start,
+      endTime: end,
       bookedBy: { id: auth.employeeId } as Employee,
       status: ResourceBookingStatus.UPCOMING
     });
 
     await bookingRepo.save(booking);
+
+    // Send confirmation notification
+    await createNotification(
+      booking.bookedBy.id,
+      NotificationType.BOOKING_CONFIRMED,
+      'Booking Confirmed',
+      `Booking for resource ${resource.name} has been confirmed for ${start.toLocaleString()} to ${end.toLocaleString()}.`,
+      'ResourceBooking',
+      booking.id
+    );
 
     await logAudit(auth.employeeId, 'CREATE_BOOKING', 'ResourceBooking', booking.id, { resourceId });
     return res.status(201).json(booking);
@@ -222,13 +300,24 @@ employeeRouter.post('/bookings/:id/cancel', async (req, res) => {
   try {
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
     const booking = await bookingRepo.findOne({
-      where: { id: req.params.id, bookedBy: { id: auth.employeeId } }
+      where: { id: req.params.id, bookedBy: { id: auth.employeeId } },
+      relations: { bookedBy: true, resource: true }
     });
 
     if (!booking) return res.status(404).json({ message: 'Booking not found or not owned by you' });
 
     booking.status = ResourceBookingStatus.CANCELLED;
     await bookingRepo.save(booking);
+
+    // Notify employee of cancellation
+    await createNotification(
+      booking.bookedBy.id,
+      NotificationType.BOOKING_CANCELLED,
+      'Booking Cancelled',
+      `Your booking for resource ${booking.resource.name} has been cancelled.`,
+      'ResourceBooking',
+      booking.id
+    );
 
     await logAudit(auth.employeeId, 'CANCEL_BOOKING', 'ResourceBooking', booking.id);
     return res.json(booking);
@@ -244,13 +333,36 @@ employeeRouter.put('/bookings/:id', async (req, res) => {
   try {
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
     const booking = await bookingRepo.findOne({
-      where: { id: req.params.id, bookedBy: { id: auth.employeeId } }
+      where: { id: req.params.id, bookedBy: { id: auth.employeeId } },
+      relations: { resource: true, bookedBy: true }
     });
 
     if (!booking) return res.status(404).json({ message: 'Booking not found or not owned by you' });
 
-    if (startTime) booking.startTime = new Date(startTime);
-    if (endTime) booking.endTime = new Date(endTime);
+    const start = startTime ? new Date(startTime) : booking.startTime;
+    const end = endTime ? new Date(endTime) : booking.endTime;
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+      return res.status(400).json({ message: 'Invalid start or end time' });
+    }
+
+    // Overlap check
+    if (startTime || endTime) {
+      const overlap = await bookingRepo.createQueryBuilder('booking')
+        .where('booking.resource_id = :resourceId', { resourceId: booking.resource.id })
+        .andWhere('booking.status != :cancelled', { cancelled: ResourceBookingStatus.CANCELLED })
+        .andWhere('booking.start_time < :end', { end })
+        .andWhere('booking.end_time > :start', { start })
+        .andWhere('booking.id != :bookingId', { bookingId: req.params.id })
+        .getOne();
+
+      if (overlap) {
+        return res.status(400).json({ message: 'Overlapping booking exists for this resource' });
+      }
+    }
+
+    if (startTime) booking.startTime = start;
+    if (endTime) booking.endTime = end;
 
     await bookingRepo.save(booking);
 

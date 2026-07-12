@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { In, EntityManager } from 'typeorm';
+import { In, EntityManager, Not, LessThan, Between } from 'typeorm';
 import bcrypt from 'bcrypt';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -18,10 +18,11 @@ import { AuditRecord, AuditRecordResult } from '../entities/AuditRecord';
 import { BookableResource } from '../entities/BookableResource';
 import { ResourceBooking, ResourceBookingStatus } from '../entities/ResourceBooking';
 import { TransferRequest, TransferRequestStatus } from '../entities/TransferRequest';
-import { Notification } from '../entities/Notification';
+import { Notification, NotificationType } from '../entities/Notification';
 import { ActivityLog } from '../entities/ActivityLog';
 import { MaintenanceRequest, MaintenanceRequestStatus } from '../entities/MaintenanceRequest';
 import { logAudit } from '../utils/audit';
+import { createNotification } from '../utils/notification';
 import { mailer } from '../utils/mailer';
 import { env } from '../config/env';
 
@@ -1406,12 +1407,29 @@ adminRouter.post('/allocations', async (req, res) => {
     }
 
     const activeAlloc = await allocationRepo.findOne({
-      where: { asset: { id: asset.id }, status: AllocationStatus.ACTIVE }
+      where: { asset: { id: asset.id }, status: AllocationStatus.ACTIVE },
+      relations: { allocatedToEmployee: true, allocatedToDepartment: true }
     });
     if (activeAlloc) {
-      activeAlloc.status = AllocationStatus.RETURNED;
-      activeAlloc.actualReturnDate = new Date();
-      await allocationRepo.save(activeAlloc);
+      const holderName = activeAlloc.allocatedToEmployee
+        ? activeAlloc.allocatedToEmployee.name
+        : activeAlloc.allocatedToDepartment
+        ? activeAlloc.allocatedToDepartment.name
+        : 'Unknown';
+      
+      const holderCode = activeAlloc.allocatedToEmployee
+        ? activeAlloc.allocatedToEmployee.employeeCode
+        : activeAlloc.allocatedToDepartment
+        ? activeAlloc.allocatedToDepartment.code
+        : '';
+
+      return res.status(400).json({
+        message: `Asset is already allocated to ${holderName}${holderCode ? ` (${holderCode})` : ''}`,
+        conflict: true,
+        currentHolder: `${holderName}${holderCode ? ` (${holderCode})` : ''}`,
+        currentAllocationId: activeAlloc.id,
+        asset: { id: asset.id, name: asset.name, assetTag: asset.assetTag }
+      });
     }
 
     const allocation = allocationRepo.create({
@@ -1431,6 +1449,18 @@ adminRouter.post('/allocations', async (req, res) => {
     asset.currentHolderDepartment = department;
     await assetRepo.save(asset);
 
+    // Notify employee of allocation
+    if (employee) {
+      await createNotification(
+        employee.id,
+        NotificationType.ASSET_ASSIGNED,
+        'Asset Allocated to You',
+        `Asset ${asset.name} (${asset.assetTag}) has been allocated to you by ${auth.name}.`,
+        'Asset',
+        asset.id
+      );
+    }
+
     await logAudit(
       auth.employeeId,
       'ALLOCATE',
@@ -1440,6 +1470,83 @@ adminRouter.post('/allocations', async (req, res) => {
     );
 
     return res.status(201).json(allocation);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.post('/transfers', async (req, res) => {
+  const auth = getAuth(req);
+  const { assetId, requestedToEmployeeId, requestedToDepartmentId, reason } = req.body as {
+    assetId: string;
+    requestedToEmployeeId?: string;
+    requestedToDepartmentId?: string;
+    reason?: string;
+  };
+
+  if (!assetId) {
+    return res.status(400).json({ message: 'AssetId is required' });
+  }
+
+  try {
+    const assetRepo = AppDataSource.getRepository(Asset);
+    const asset = await assetRepo.findOne({ where: { id: assetId } });
+    if (!asset) return res.status(404).json({ message: 'Asset not found' });
+
+    const allocationRepo = AppDataSource.getRepository(AssetAllocation);
+    const currentAllocation = await allocationRepo.findOne({
+      where: { asset: { id: assetId }, status: AllocationStatus.ACTIVE },
+      relations: { allocatedToEmployee: true, allocatedToDepartment: true }
+    });
+
+    if (!currentAllocation) {
+      return res.status(400).json({ message: 'Asset is not currently allocated to anyone' });
+    }
+
+    const employeeRepo = AppDataSource.getRepository(Employee);
+    const departmentRepo = AppDataSource.getRepository(Department);
+
+    let requestedToEmployee: Employee | null = null;
+    if (requestedToEmployeeId) {
+      requestedToEmployee = await employeeRepo.findOne({ where: { id: requestedToEmployeeId } });
+    }
+
+    let requestedToDepartment: Department | null = null;
+    if (requestedToDepartmentId) {
+      requestedToDepartment = await departmentRepo.findOne({ where: { id: requestedToDepartmentId } });
+    }
+
+    if (!requestedToEmployee && !requestedToDepartment) {
+      return res.status(400).json({ message: 'Either requestedToEmployeeId or requestedToDepartmentId must be provided' });
+    }
+
+    const transferRepo = AppDataSource.getRepository(TransferRequest);
+    const transfer = transferRepo.create({
+      asset,
+      currentAllocation,
+      requestedBy: { id: auth.employeeId } as Employee,
+      requestedToEmployee: requestedToEmployee || undefined,
+      requestedToDepartment: requestedToDepartment || undefined,
+      reason,
+      status: TransferRequestStatus.REQUESTED
+    });
+
+    await transferRepo.save(transfer);
+
+    // Notify the current holder about transfer request
+    if (currentAllocation.allocatedToEmployee) {
+      await createNotification(
+        currentAllocation.allocatedToEmployee.id,
+        NotificationType.TRANSFER_APPROVED,
+        'Transfer Requested',
+        `A transfer request has been initiated for asset ${asset.name} (${asset.assetTag}) currently allocated to you.`,
+        'TransferRequest',
+        transfer.id
+      );
+    }
+
+    await logAudit(auth.employeeId, 'CREATE_TRANSFER_REQUEST', 'TransferRequest', transfer.id, { assetId });
+    return res.status(201).json(transfer);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -1596,7 +1703,7 @@ adminRouter.post('/maintenance-requests/:id/approve', async (req, res) => {
 
   try {
     const maintenanceRepo = AppDataSource.getRepository(MaintenanceRequest);
-    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true } });
+    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true, raisedBy: true } });
 
     if (!request) {
       return res.status(404).json({ message: 'Maintenance request not found' });
@@ -1606,9 +1713,36 @@ adminRouter.post('/maintenance-requests/:id/approve', async (req, res) => {
       return res.status(400).json({ message: 'Maintenance request is not in pending status' });
     }
 
-    request.status = MaintenanceRequestStatus.APPROVED;
-    request.approvedOrRejectedBy = { id: auth.employeeId } as Employee;
-    await maintenanceRepo.save(request);
+    await AppDataSource.transaction(async (manager) => {
+      request.status = MaintenanceRequestStatus.APPROVED;
+      request.approvedOrRejectedBy = { id: auth.employeeId } as Employee;
+      await manager.save(request);
+
+      const asset = request.asset;
+      const originalStatus = asset.status;
+      asset.status = AssetStatus.UNDER_MAINTENANCE;
+      await manager.save(asset);
+
+      const transition = manager.getRepository(AssetStatusTransitionLog).create({
+        asset,
+        fromStatus: originalStatus,
+        toStatus: AssetStatus.UNDER_MAINTENANCE,
+        reason: `Maintenance request ${request.id} approved`,
+        triggeredBy: { id: auth.employeeId } as Employee
+      });
+      await manager.save(transition);
+    });
+
+    if (request.raisedBy) {
+      await createNotification(
+        request.raisedBy.id,
+        NotificationType.MAINTENANCE_APPROVED,
+        'Maintenance Request Approved',
+        `Your maintenance request for asset ${request.asset.name} has been approved.`,
+        'MaintenanceRequest',
+        request.id
+      );
+    }
 
     await logAudit(
       auth.employeeId,
@@ -1631,7 +1765,7 @@ adminRouter.post('/maintenance-requests/:id/reject', async (req, res) => {
 
   try {
     const maintenanceRepo = AppDataSource.getRepository(MaintenanceRequest);
-    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true } });
+    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true, raisedBy: true } });
 
     if (!request) {
       return res.status(404).json({ message: 'Maintenance request not found' });
@@ -1645,6 +1779,17 @@ adminRouter.post('/maintenance-requests/:id/reject', async (req, res) => {
     request.approvedOrRejectedBy = { id: auth.employeeId } as Employee;
     request.rejectionReason = reason || null;
     await maintenanceRepo.save(request);
+
+    if (request.raisedBy) {
+      await createNotification(
+        request.raisedBy.id,
+        NotificationType.MAINTENANCE_REJECTED,
+        'Maintenance Request Rejected',
+        `Your maintenance request for asset ${request.asset.name} has been rejected. Reason: ${reason || 'None provided'}`,
+        'MaintenanceRequest',
+        request.id
+      );
+    }
 
     await logAudit(
       auth.employeeId,
@@ -1671,7 +1816,7 @@ adminRouter.post('/maintenance-requests/:id/assign-technician', async (req, res)
 
   try {
     const maintenanceRepo = AppDataSource.getRepository(MaintenanceRequest);
-    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true } });
+    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true, raisedBy: true } });
 
     if (!request) {
       return res.status(404).json({ message: 'Maintenance request not found' });
@@ -1685,6 +1830,17 @@ adminRouter.post('/maintenance-requests/:id/assign-technician', async (req, res)
     request.technicianName = technicianName;
     await maintenanceRepo.save(request);
 
+    if (request.raisedBy) {
+      await createNotification(
+        request.raisedBy.id,
+        NotificationType.MAINTENANCE_APPROVED,
+        'Technician Assigned to Maintenance',
+        `Technician ${technicianName} has been assigned to your maintenance request for ${request.asset.name}.`,
+        'MaintenanceRequest',
+        request.id
+      );
+    }
+
     await logAudit(
       auth.employeeId,
       'ASSIGN_TECHNICIAN',
@@ -1694,6 +1850,125 @@ adminRouter.post('/maintenance-requests/:id/assign-technician', async (req, res)
     );
 
     return res.json({ message: 'Technician assigned successfully', request: { id: request.id, status: request.status, technicianName: request.technicianName } });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.post('/maintenance-requests/:id/start-repair', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+
+  try {
+    const maintenanceRepo = AppDataSource.getRepository(MaintenanceRequest);
+    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true, raisedBy: true } });
+
+    if (!request) {
+      return res.status(404).json({ message: 'Maintenance request not found' });
+    }
+
+    if (request.status !== MaintenanceRequestStatus.APPROVED && request.status !== MaintenanceRequestStatus.TECHNICIAN_ASSIGNED) {
+      return res.status(400).json({ message: 'Maintenance request must be approved or technician assigned' });
+    }
+
+    request.status = MaintenanceRequestStatus.IN_PROGRESS;
+    await maintenanceRepo.save(request);
+
+    if (request.raisedBy) {
+      await createNotification(
+        request.raisedBy.id,
+        NotificationType.MAINTENANCE_APPROVED,
+        'Maintenance Work Started',
+        `Work has started on repairing your requested asset ${request.asset.name}.`,
+        'MaintenanceRequest',
+        request.id
+      );
+    }
+
+    await logAudit(
+      auth.employeeId,
+      'START_REPAIR',
+      'MaintenanceRequest',
+      id,
+      { assetId: request.asset.id }
+    );
+
+    return res.json({ message: 'Repair started successfully', request: { id: request.id, status: request.status } });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.post('/maintenance-requests/:id/resolve', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+  const { notes, assetCondition, cost, actualDowntime } = req.body as {
+    notes?: string;
+    assetCondition?: string;
+    cost?: number;
+    actualDowntime?: number;
+  };
+
+  try {
+    const maintenanceRepo = AppDataSource.getRepository(MaintenanceRequest);
+    const request = await maintenanceRepo.findOne({ where: { id }, relations: { asset: true, raisedBy: true } });
+
+    if (!request) {
+      return res.status(404).json({ message: 'Maintenance request not found' });
+    }
+
+    await AppDataSource.transaction(async (manager) => {
+      request.status = MaintenanceRequestStatus.RESOLVED;
+      request.resolvedAt = new Date();
+      request.resolutionNotes = notes || null;
+      if (cost !== undefined) request.cost = cost;
+      if (actualDowntime !== undefined) request.actualDowntime = actualDowntime;
+      await manager.save(request);
+
+      const asset = request.asset;
+      const originalStatus = asset.status;
+
+      // Check if asset has active allocation, if so revert to allocated, otherwise available
+      const activeAlloc = await manager.getRepository(AssetAllocation).findOne({
+        where: { asset: { id: asset.id }, status: AllocationStatus.ACTIVE }
+      });
+      asset.status = activeAlloc ? AssetStatus.ALLOCATED : AssetStatus.AVAILABLE;
+      
+      if (assetCondition) {
+        asset.condition = assetCondition;
+      }
+      await manager.save(asset);
+
+      const transition = manager.getRepository(AssetStatusTransitionLog).create({
+        asset,
+        fromStatus: originalStatus,
+        toStatus: asset.status,
+        reason: `Maintenance request resolved. Notes: ${notes || 'None'}`,
+        triggeredBy: { id: auth.employeeId } as Employee
+      });
+      await manager.save(transition);
+    });
+
+    if (request.raisedBy) {
+      await createNotification(
+        request.raisedBy.id,
+        NotificationType.MAINTENANCE_APPROVED,
+        'Maintenance Completed',
+        `Maintenance request for asset ${request.asset.name} has been resolved/completed.`,
+        'MaintenanceRequest',
+        request.id
+      );
+    }
+
+    await logAudit(
+      auth.employeeId,
+      'RESOLVE_MAINTENANCE',
+      'MaintenanceRequest',
+      id,
+      { assetId: request.asset.id, notes }
+    );
+
+    return res.json({ message: 'Maintenance request resolved successfully', request: { id: request.id, status: request.status } });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -1912,10 +2187,33 @@ adminRouter.post('/audit-cycles/:id/close', async (req, res) => {
       return res.status(400).json({ message: 'Audit cycle is not in progress' });
     }
 
-    cycle.status = AuditCycleStatus.CLOSED;
-    cycle.closedAt = new Date();
-    cycle.closedBy = { id: auth.employeeId } as Employee;
-    await auditCycleRepo.save(cycle);
+    await AppDataSource.transaction(async (manager) => {
+      cycle.status = AuditCycleStatus.CLOSED;
+      cycle.closedAt = new Date();
+      cycle.closedBy = { id: auth.employeeId } as Employee;
+      await manager.save(cycle);
+
+      const missingRecords = await manager.getRepository(AuditRecord).find({
+        where: { auditCycle: { id }, result: AuditRecordResult.MISSING },
+        relations: { asset: true }
+      });
+
+      for (const rec of missingRecords) {
+        const asset = rec.asset;
+        const originalStatus = asset.status;
+        asset.status = AssetStatus.LOST;
+        await manager.save(asset);
+
+        const transition = manager.getRepository(AssetStatusTransitionLog).create({
+          asset,
+          fromStatus: originalStatus,
+          toStatus: AssetStatus.LOST,
+          reason: `Audit cycle "${cycle.name}" closed - asset verified as missing`,
+          triggeredBy: { id: auth.employeeId } as Employee
+        });
+        await manager.save(transition);
+      }
+    });
 
     await logAudit(
       auth.employeeId,
@@ -1924,7 +2222,56 @@ adminRouter.post('/audit-cycles/:id/close', async (req, res) => {
       id
     );
 
-    return res.json({ message: 'Audit cycle closed successfully', cycle: { id: cycle.id, status: cycle.status } });
+    return res.json({ message: 'Audit cycle closed successfully and missing assets marked as lost', cycle: { id: cycle.id, status: cycle.status } });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.get('/audit-cycles/:id/records', async (req, res) => {
+  const id = req.params.id;
+  try {
+    const recordRepo = AppDataSource.getRepository(AuditRecord);
+    const records = await recordRepo.find({
+      where: { auditCycle: { id } },
+      relations: { asset: true, verifiedByAuditor: true, discrepancyResolvedBy: true }
+    });
+    return res.json(records);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.post('/audit-records/:id/resolve', async (req, res) => {
+  const auth = getAuth(req);
+  const id = req.params.id;
+  const { notes } = req.body as { notes?: string };
+
+  try {
+    const recordRepo = AppDataSource.getRepository(AuditRecord);
+    const record = await recordRepo.findOne({
+      where: { id },
+      relations: { asset: true, auditCycle: true }
+    });
+
+    if (!record) {
+      return res.status(404).json({ message: 'Audit record not found' });
+    }
+
+    record.isDiscrepancy = false;
+    record.discrepancyResolvedBy = { id: auth.employeeId } as Employee;
+    record.discrepancyResolutionNotes = notes || null;
+    await recordRepo.save(record);
+
+    await logAudit(
+      auth.employeeId,
+      'RESOLVE_AUDIT_DISCREPANCY',
+      'AuditRecord',
+      id,
+      { notes, assetId: record.asset.id }
+    );
+
+    return res.json({ message: 'Discrepancy resolved successfully', record });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -2164,6 +2511,19 @@ adminRouter.get('/bookings', async (req, res) => {
         bookedForDepartment: true
       }
     });
+
+    // Dynamically calculate status based on current time
+    const now = new Date();
+    for (const bk of bookings) {
+      if (bk.status !== ResourceBookingStatus.CANCELLED) {
+        if (now > bk.endTime) {
+          bk.status = ResourceBookingStatus.COMPLETED;
+        } else if (now >= bk.startTime) {
+          bk.status = ResourceBookingStatus.ONGOING;
+        }
+      }
+    }
+
     return res.json(bookings);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
@@ -2184,6 +2544,13 @@ adminRouter.post('/bookings', async (req, res) => {
     return res.status(400).json({ message: 'ResourceId, startTime, and endTime are required' });
   }
 
+  const start = new Date(startTime);
+  const end = new Date(endTime);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+    return res.status(400).json({ message: 'Invalid start or end time' });
+  }
+
   try {
     const resourceRepo = AppDataSource.getRepository(BookableResource);
     const resource = await resourceRepo.findOne({ where: { id: resourceId } });
@@ -2192,16 +2559,39 @@ adminRouter.post('/bookings', async (req, res) => {
     }
 
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+
+    // Overlap check
+    const overlap = await bookingRepo.createQueryBuilder('booking')
+      .where('booking.resource_id = :resourceId', { resourceId })
+      .andWhere('booking.status != :cancelled', { cancelled: ResourceBookingStatus.CANCELLED })
+      .andWhere('booking.start_time < :end', { end })
+      .andWhere('booking.end_time > :start', { start })
+      .getOne();
+
+    if (overlap) {
+      return res.status(400).json({ message: 'Overlapping booking exists for this resource' });
+    }
+
     const booking = bookingRepo.create({
       resource,
-      startTime: new Date(startTime),
-      endTime: new Date(endTime),
+      startTime: start,
+      endTime: end,
       bookedBy: bookedByEmployeeId ? { id: bookedByEmployeeId } as Employee : { id: auth.employeeId } as Employee,
       bookedForDepartment: bookedForDepartmentId ? { id: bookedForDepartmentId } as Department : undefined,
       status: ResourceBookingStatus.UPCOMING
     });
 
     await bookingRepo.save(booking);
+
+    // Send confirmation notification
+    await createNotification(
+      booking.bookedBy.id,
+      NotificationType.BOOKING_CONFIRMED,
+      'Booking Confirmed',
+      `Your booking for resource ${resource.name} has been confirmed for ${start.toLocaleString()} to ${end.toLocaleString()}.`,
+      'ResourceBooking',
+      booking.id
+    );
 
     await logAudit(
       auth.employeeId,
@@ -2223,7 +2613,10 @@ adminRouter.post('/bookings/:id/cancel', async (req, res) => {
 
   try {
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
-    const booking = await bookingRepo.findOne({ where: { id } });
+    const booking = await bookingRepo.findOne({
+      where: { id },
+      relations: { bookedBy: true, resource: true }
+    });
 
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
@@ -2231,6 +2624,16 @@ adminRouter.post('/bookings/:id/cancel', async (req, res) => {
 
     booking.status = ResourceBookingStatus.CANCELLED;
     await bookingRepo.save(booking);
+
+    // Notify employee of cancellation
+    await createNotification(
+      booking.bookedBy.id,
+      NotificationType.BOOKING_CANCELLED,
+      'Booking Cancelled',
+      `Your booking for resource ${booking.resource.name} has been cancelled by an administrator.`,
+      'ResourceBooking',
+      booking.id
+    );
 
     await logAudit(
       auth.employeeId,
@@ -2252,14 +2655,39 @@ adminRouter.put('/bookings/:id', async (req, res) => {
 
   try {
     const bookingRepo = AppDataSource.getRepository(ResourceBooking);
-    const booking = await bookingRepo.findOne({ where: { id } });
+    const booking = await bookingRepo.findOne({
+      where: { id },
+      relations: { resource: true, bookedBy: true }
+    });
 
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
 
-    if (startTime) booking.startTime = new Date(startTime);
-    if (endTime) booking.endTime = new Date(endTime);
+    const start = startTime ? new Date(startTime) : booking.startTime;
+    const end = endTime ? new Date(endTime) : booking.endTime;
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+      return res.status(400).json({ message: 'Invalid start or end time' });
+    }
+
+    // Overlap check
+    if (startTime || endTime) {
+      const overlap = await bookingRepo.createQueryBuilder('booking')
+        .where('booking.resource_id = :resourceId', { resourceId: booking.resource.id })
+        .andWhere('booking.status != :cancelled', { cancelled: ResourceBookingStatus.CANCELLED })
+        .andWhere('booking.start_time < :end', { end })
+        .andWhere('booking.end_time > :start', { start })
+        .andWhere('booking.id != :bookingId', { bookingId: id })
+        .getOne();
+
+      if (overlap) {
+        return res.status(400).json({ message: 'Overlapping booking exists for this resource' });
+      }
+    }
+
+    if (startTime) booking.startTime = start;
+    if (endTime) booking.endTime = end;
     if (status) booking.status = status;
 
     await bookingRepo.save(booking);
@@ -2309,6 +2737,131 @@ adminRouter.get('/reports/summary', async (req, res) => {
       pendingMaintenance,
       totalBookings
     });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.get('/reports/assets', async (req, res) => {
+  const { categoryId, location, status } = req.query as {
+    categoryId?: string;
+    location?: string;
+    status?: string;
+  };
+  try {
+    const assetRepo = AppDataSource.getRepository(Asset);
+    const qb = assetRepo.createQueryBuilder('asset')
+      .leftJoinAndSelect('asset.category', 'category')
+      .leftJoinAndSelect('asset.currentHolderEmployee', 'employee')
+      .leftJoinAndSelect('asset.currentHolderDepartment', 'department');
+
+    if (categoryId) qb.andWhere('category.id = :categoryId', { categoryId });
+    if (location) qb.andWhere('asset.location ILIKE :location', { location: `%${location}%` });
+    if (status) qb.andWhere('asset.status = :status', { status });
+
+    const assets = await qb.getMany();
+
+    const totalCount = assets.length;
+    const availableCount = assets.filter(a => a.status === AssetStatus.AVAILABLE).length;
+    const allocatedCount = assets.filter(a => a.status === AssetStatus.ALLOCATED).length;
+    const maintenanceCount = assets.filter(a => a.status === AssetStatus.UNDER_MAINTENANCE).length;
+    const lostCount = assets.filter(a => a.status === AssetStatus.LOST).length;
+
+    return res.json({
+      metrics: {
+        totalCount,
+        availableCount,
+        allocatedCount,
+        maintenanceCount,
+        lostCount
+      },
+      assets
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.get('/reports/maintenance', async (req, res) => {
+  const { startDate, endDate, priority } = req.query as {
+    startDate?: string;
+    endDate?: string;
+    priority?: string;
+  };
+  try {
+    const mrRepo = AppDataSource.getRepository(MaintenanceRequest);
+    const qb = mrRepo.createQueryBuilder('mr')
+      .leftJoinAndSelect('mr.asset', 'asset')
+      .leftJoinAndSelect('mr.raisedBy', 'employee');
+
+    if (startDate) qb.andWhere('mr.createdAt >= :startDate', { startDate: new Date(startDate) });
+    if (endDate) qb.andWhere('mr.createdAt <= :endDate', { endDate: new Date(endDate) });
+    if (priority) qb.andWhere('mr.priority = :priority', { priority });
+
+    const requests = await qb.getMany();
+
+    const totalCost = requests.reduce((sum, r) => sum + (r.cost ? Number(r.cost) : 0), 0);
+    const resolvedCount = requests.filter(r => r.status === MaintenanceRequestStatus.RESOLVED).length;
+    const pendingCount = requests.filter(r => r.status === MaintenanceRequestStatus.PENDING).length;
+
+    return res.json({
+      metrics: {
+        totalRequests: requests.length,
+        resolvedCount,
+        pendingCount,
+        totalCost
+      },
+      requests
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.get('/reports/departments', async (req, res) => {
+  try {
+    const allocationRepo = AppDataSource.getRepository(AssetAllocation);
+    const data = await allocationRepo.createQueryBuilder('alloc')
+      .leftJoin('alloc.allocatedToDepartment', 'dept')
+      .select('dept.name', 'departmentName')
+      .addSelect('COUNT(*)', 'allocationCount')
+      .where('alloc.status = :status', { status: AllocationStatus.ACTIVE })
+      .andWhere('alloc.allocatedToDepartment IS NOT NULL')
+      .groupBy('dept.name')
+      .getRawMany();
+
+    return res.json(data);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+adminRouter.get('/reports/bookings', async (req, res) => {
+  const { resourceId } = req.query as { resourceId?: string };
+  try {
+    const bookingRepo = AppDataSource.getRepository(ResourceBooking);
+    const qb = bookingRepo.createQueryBuilder('booking')
+      .leftJoinAndSelect('booking.resource', 'resource')
+      .leftJoinAndSelect('booking.bookedBy', 'employee')
+      .where('booking.status != :cancelled', { cancelled: ResourceBookingStatus.CANCELLED });
+
+    if (resourceId) {
+      qb.andWhere('resource.id = :resourceId', { resourceId });
+    }
+
+    const bookings = await qb.getMany();
+
+    // Dynamically calculate status based on current time
+    const now = new Date();
+    for (const bk of bookings) {
+      if (now > bk.endTime) {
+        bk.status = ResourceBookingStatus.COMPLETED;
+      } else if (now >= bk.startTime) {
+        bk.status = ResourceBookingStatus.ONGOING;
+      }
+    }
+
+    return res.json(bookings);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
