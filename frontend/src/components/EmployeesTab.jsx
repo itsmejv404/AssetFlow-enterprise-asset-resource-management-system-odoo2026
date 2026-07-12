@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 
 export function EmployeesTab({
   employees,
@@ -21,6 +21,50 @@ export function EmployeesTab({
   handleChangeRole,
   isAdmin = true
 }) {
+  // ── Search & Filter state ──────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterDept, setFilterDept] = useState('');
+  const [filterRole, setFilterRole] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  const filteredEmployees = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return employees.filter(emp => {
+      const matchesSearch =
+        !q ||
+        emp.name?.toLowerCase().includes(q) ||
+        emp.employeeCode?.toLowerCase().includes(q) ||
+        emp.user?.email?.toLowerCase().includes(q) ||
+        emp.department?.name?.toLowerCase().includes(q);
+      const matchesDept = !filterDept || String(emp.department?.id) === filterDept;
+      const matchesRole = !filterRole || emp.role === filterRole;
+      const matchesStatus =
+        filterStatus === '' ||
+        (filterStatus === 'active' && emp.isActive) ||
+        (filterStatus === 'inactive' && !emp.isActive);
+      return matchesSearch && matchesDept && matchesRole && matchesStatus;
+    });
+  }, [employees, searchQuery, filterDept, filterRole, filterStatus]);
+
+  const hasActiveFilters = searchQuery || filterDept || filterRole || filterStatus !== '';
+
+  function clearFilters() {
+    setSearchQuery('');
+    setFilterDept('');
+    setFilterRole('');
+    setFilterStatus('');
+  }
+
+  // Unique department list for filter dropdown (from employees data)
+  const departmentOptions = useMemo(() => {
+    const seen = new Set();
+    return departments.filter(d => {
+      if (seen.has(d.id)) return false;
+      seen.add(d.id);
+      return true;
+    });
+  }, [departments]);
+
   return (
     <div>
       <h3>Employee Management</h3>
@@ -117,7 +161,71 @@ export function EmployeesTab({
 
       <hr />
       <h4>Employee Directory</h4>
-      <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+
+      {/* ── Search & Filter Bar ──────────────────────────────── */}
+      <div className="search-filter-bar">
+        <input
+          type="search"
+          placeholder="🔍  Search by name, email or code…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ flex: '2 1 14rem' }}
+        />
+
+        <div className="filter-group">
+          <label htmlFor="emp-dept-filter">Department</label>
+          <select
+            id="emp-dept-filter"
+            value={filterDept}
+            onChange={e => setFilterDept(e.target.value)}
+          >
+            <option value="">All</option>
+            {departmentOptions.map(d => (
+              <option key={d.id} value={String(d.id)}>{d.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="emp-role-filter">Role</label>
+          <select
+            id="emp-role-filter"
+            value={filterRole}
+            onChange={e => setFilterRole(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="employee">Employee</option>
+            <option value="asset_manager">Asset Manager</option>
+            <option value="department_head">Department Head</option>
+            <option value="admin">Administrator</option>
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="emp-status-filter">Status</label>
+          <select
+            id="emp-status-filter"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+
+        {hasActiveFilters && (
+          <button type="button" className="clear-filters-btn" onClick={clearFilters}>
+            ✕ Clear
+          </button>
+        )}
+
+        <span className="result-count-badge">
+          {filteredEmployees.length} / {employees.length} records
+        </span>
+      </div>
+
+      <table className="table-with-search">
         <thead>
           <tr>
             <th>Code</th>
@@ -130,10 +238,10 @@ export function EmployeesTab({
           </tr>
         </thead>
         <tbody>
-          {employees.length === 0 ? (
-            <tr><td colSpan={isAdmin ? 7 : 6}>No employees found.</td></tr>
+          {filteredEmployees.length === 0 ? (
+            <tr><td colSpan={isAdmin ? 7 : 6}>{hasActiveFilters ? 'No employees match the current filters.' : 'No employees found.'}</td></tr>
           ) : (
-            employees.map(emp => (
+            filteredEmployees.map(emp => (
               <tr key={emp.id}>
                 <td>{emp.employeeCode}</td>
                 <td>{emp.name}</td>

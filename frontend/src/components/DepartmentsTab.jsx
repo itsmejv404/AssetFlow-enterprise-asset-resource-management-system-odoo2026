@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 
 export function DepartmentsTab({
   departments,
@@ -13,6 +13,31 @@ export function DepartmentsTab({
   handleDeleteDept,
   isAdmin = true
 }) {
+  // ── Search & Filter state ──────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  const filteredDepts = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return departments.filter(dept => {
+      const matchesSearch =
+        !q ||
+        dept.name?.toLowerCase().includes(q) ||
+        dept.code?.toLowerCase().includes(q) ||
+        dept.departmentHead?.name?.toLowerCase().includes(q) ||
+        dept.parentDepartment?.name?.toLowerCase().includes(q);
+      const matchesStatus = !filterStatus || dept.status === filterStatus;
+      return matchesSearch && matchesStatus;
+    });
+  }, [departments, searchQuery, filterStatus]);
+
+  const hasActiveFilters = searchQuery || filterStatus;
+
+  function clearFilters() {
+    setSearchQuery('');
+    setFilterStatus('');
+  }
+
   return (
     <div>
       <h3>Department Management</h3>
@@ -92,7 +117,42 @@ export function DepartmentsTab({
 
       <hr />
       <h4>Department Directory</h4>
-      <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+
+      {/* ── Search & Filter Bar ──────────────────────────────── */}
+      <div className="search-filter-bar">
+        <input
+          type="search"
+          placeholder="🔍  Search by name, code or head…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ flex: '2 1 14rem' }}
+        />
+
+        <div className="filter-group">
+          <label htmlFor="dept-status-filter">Status</label>
+          <select
+            id="dept-status-filter"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+          </select>
+        </div>
+
+        {hasActiveFilters && (
+          <button type="button" className="clear-filters-btn" onClick={clearFilters}>
+            ✕ Clear
+          </button>
+        )}
+
+        <span className="result-count-badge">
+          {filteredDepts.length} / {departments.length} records
+        </span>
+      </div>
+
+      <table className="table-with-search">
         <thead>
           <tr>
             <th>Name</th>
@@ -105,10 +165,10 @@ export function DepartmentsTab({
           </tr>
         </thead>
         <tbody>
-          {departments.length === 0 ? (
-            <tr><td colSpan={isAdmin ? 7 : 6}>No departments found.</td></tr>
+          {filteredDepts.length === 0 ? (
+            <tr><td colSpan={isAdmin ? 7 : 6}>{hasActiveFilters ? 'No departments match the current filters.' : 'No departments found.'}</td></tr>
           ) : (
-            departments.map(dept => (
+            filteredDepts.map(dept => (
               <tr key={dept.id}>
                 <td>{dept.name}</td>
                 <td>{dept.code}</td>

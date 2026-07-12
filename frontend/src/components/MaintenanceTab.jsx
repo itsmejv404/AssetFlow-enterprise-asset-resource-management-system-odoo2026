@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 
 export function MaintenanceTab({
   maintenanceRequests,
@@ -14,6 +14,35 @@ export function MaintenanceTab({
   handleRejectMaintenance,
   handleAssignTechnician
 }) {
+  // ── Search & Filter state ──────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterPriority, setFilterPriority] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  const filteredRequests = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return maintenanceRequests.filter(req => {
+      const matchesSearch =
+        !q ||
+        req.asset?.name?.toLowerCase().includes(q) ||
+        req.asset?.assetTag?.toLowerCase().includes(q) ||
+        req.raisedBy?.name?.toLowerCase().includes(q) ||
+        req.issueDescription?.toLowerCase().includes(q) ||
+        req.technicianName?.toLowerCase().includes(q);
+      const matchesPriority = !filterPriority || req.priority === filterPriority;
+      const matchesStatus = !filterStatus || req.status === filterStatus;
+      return matchesSearch && matchesPriority && matchesStatus;
+    });
+  }, [maintenanceRequests, searchQuery, filterPriority, filterStatus]);
+
+  const hasActiveFilters = searchQuery || filterPriority || filterStatus;
+
+  function clearFilters() {
+    setSearchQuery('');
+    setFilterPriority('');
+    setFilterStatus('');
+  }
+
   return (
     <div>
       <h3>Maintenance Management</h3>
@@ -55,7 +84,61 @@ export function MaintenanceTab({
 
       <hr />
       <h4>Maintenance Requests Directory</h4>
-      <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+
+      {/* ── Search & Filter Bar ──────────────────────────────── */}
+      <div className="search-filter-bar">
+        <input
+          type="search"
+          placeholder="🔍  Search by asset, requester or description…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ flex: '2 1 14rem' }}
+        />
+
+        <div className="filter-group">
+          <label htmlFor="maint-priority-filter">Priority</label>
+          <select
+            id="maint-priority-filter"
+            value={filterPriority}
+            onChange={e => setFilterPriority(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="maint-status-filter">Status</label>
+          <select
+            id="maint-status-filter"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="technician_assigned">Technician Assigned</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+        </div>
+
+        {hasActiveFilters && (
+          <button type="button" className="clear-filters-btn" onClick={clearFilters}>
+            ✕ Clear
+          </button>
+        )}
+
+        <span className="result-count-badge">
+          {filteredRequests.length} / {maintenanceRequests.length} records
+        </span>
+      </div>
+
+      <table className="table-with-search">
         <thead>
           <tr>
             <th>Asset</th>
@@ -68,10 +151,10 @@ export function MaintenanceTab({
           </tr>
         </thead>
         <tbody>
-          {maintenanceRequests.length === 0 ? (
-            <tr><td colSpan="7">No maintenance requests found.</td></tr>
+          {filteredRequests.length === 0 ? (
+            <tr><td colSpan="7">{hasActiveFilters ? 'No requests match the current filters.' : 'No maintenance requests found.'}</td></tr>
           ) : (
-            maintenanceRequests.map(req => (
+            filteredRequests.map(req => (
               <tr key={req.id}>
                 <td>{req.asset?.name} ({req.asset?.assetTag})</td>
                 <td>{req.raisedBy?.name}</td>

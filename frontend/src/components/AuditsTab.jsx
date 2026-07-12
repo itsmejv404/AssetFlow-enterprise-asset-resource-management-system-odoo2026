@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 
 export function AuditsTab({
   auditCycles,
@@ -16,6 +16,31 @@ export function AuditsTab({
   handleCloseAuditCycle,
   isAdmin = true
 }) {
+  // ── Search & Filter state ──────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+
+  const filteredCycles = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return auditCycles.filter(cycle => {
+      const matchesSearch =
+        !q ||
+        cycle.name?.toLowerCase().includes(q) ||
+        cycle.scopeLocation?.toLowerCase().includes(q) ||
+        cycle.scopeDepartment?.name?.toLowerCase().includes(q) ||
+        cycle.auditors?.some(a => a.name?.toLowerCase().includes(q));
+      const matchesStatus = !filterStatus || cycle.status === filterStatus;
+      return matchesSearch && matchesStatus;
+    });
+  }, [auditCycles, searchQuery, filterStatus]);
+
+  const hasActiveFilters = searchQuery || filterStatus;
+
+  function clearFilters() {
+    setSearchQuery('');
+    setFilterStatus('');
+  }
+
   return (
     <div>
       <h3>Audit Cycles Management</h3>
@@ -37,11 +62,11 @@ export function AuditsTab({
               {' '}
               <button type="button" onClick={() => setSelectedAuditors([])}>Clear Selection</button>
             </p>
-            <div style={{ maxHeight: '200px', overflowY: 'scroll', border: '1px solid #ccc', padding: '10px' }}>
+            <div className="max-h-52 overflow-y-auto rounded-lg border border-neutral-200 p-3">
               {employees.map(emp => {
                 const isChecked = selectedAuditors.includes(emp.id);
                 return (
-                  <p key={emp.id} style={{ margin: '5px 0' }}>
+                  <p key={emp.id} className="my-1">
                     <label>
                       <input
                         type="checkbox"
@@ -60,7 +85,7 @@ export function AuditsTab({
                 );
               })}
             </div>
-            <p style={{ marginTop: '10px' }}>
+            <p className="mt-2">
               <button type="submit">Save Auditors</button>
               <button type="button" onClick={() => { setAssigningAuditorsCycle(null); setSelectedAuditors([]); }}>Cancel</button>
             </p>
@@ -129,7 +154,43 @@ export function AuditsTab({
 
       <hr />
       <h4>Audit Cycles Directory</h4>
-      <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+
+      {/* ── Search & Filter Bar ──────────────────────────────── */}
+      <div className="search-filter-bar">
+        <input
+          type="search"
+          placeholder="🔍  Search by name, location or auditor…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ flex: '2 1 14rem' }}
+        />
+
+        <div className="filter-group">
+          <label htmlFor="audit-status-filter">Status</label>
+          <select
+            id="audit-status-filter"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="planned">Planned</option>
+            <option value="in_progress">In Progress</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
+
+        {hasActiveFilters && (
+          <button type="button" className="clear-filters-btn" onClick={clearFilters}>
+            ✕ Clear
+          </button>
+        )}
+
+        <span className="result-count-badge">
+          {filteredCycles.length} / {auditCycles.length} records
+        </span>
+      </div>
+
+      <table className="table-with-search">
         <thead>
           <tr>
             <th>Name</th>
@@ -142,10 +203,10 @@ export function AuditsTab({
           </tr>
         </thead>
         <tbody>
-          {auditCycles.length === 0 ? (
-            <tr><td colSpan={isAdmin ? 7 : 6}>No audit cycles found.</td></tr>
+          {filteredCycles.length === 0 ? (
+            <tr><td colSpan={isAdmin ? 7 : 6}>{hasActiveFilters ? 'No audit cycles match the current filters.' : 'No audit cycles found.'}</td></tr>
           ) : (
-            auditCycles.map(cycle => (
+            filteredCycles.map(cycle => (
               <tr key={cycle.id}>
                 <td>{cycle.name}</td>
                 <td>{cycle.scopeDepartment?.name || 'All'}</td>

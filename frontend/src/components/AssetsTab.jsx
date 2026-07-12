@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 
 export function AssetsTab({
   assets,
@@ -23,7 +23,41 @@ export function AssetsTab({
   handleUploadDocument,
   handleDeleteDocument
 }) {
+  // ── Search & Filter state ──────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterBookable, setFilterBookable] = useState('');
 
+  const filteredAssets = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return assets.filter(asset => {
+      const matchesSearch =
+        !q ||
+        asset.name?.toLowerCase().includes(q) ||
+        asset.assetTag?.toLowerCase().includes(q) ||
+        asset.serialNumber?.toLowerCase().includes(q) ||
+        asset.location?.toLowerCase().includes(q);
+      const matchesStatus = !filterStatus || asset.status === filterStatus;
+      const matchesCategory = !filterCategory || String(asset.category?.id) === filterCategory;
+      const matchesBookable =
+        filterBookable === '' ||
+        (filterBookable === 'bookable' && asset.isBookable) ||
+        (filterBookable === 'standard' && !asset.isBookable);
+      return matchesSearch && matchesStatus && matchesCategory && matchesBookable;
+    });
+  }, [assets, searchQuery, filterStatus, filterCategory, filterBookable]);
+
+  const hasActiveFilters = searchQuery || filterStatus || filterCategory || filterBookable !== '';
+
+  function clearFilters() {
+    setSearchQuery('');
+    setFilterStatus('');
+    setFilterCategory('');
+    setFilterBookable('');
+  }
+
+  // ── Category-specific fields renderer ─────────────────────
   const renderCategoryFields = (selectedCatId, specificFieldsState, setSpecificFieldsState) => {
     const category = categories.find(c => c.id === selectedCatId);
     if (!category || !category.customFieldSchema || category.customFieldSchema.length === 0) {
@@ -31,7 +65,7 @@ export function AssetsTab({
     }
 
     return (
-      <div style={{ border: '1px dashed #ccc', padding: '10px', margin: '10px 0' }}>
+      <div className="my-3 rounded-lg border border-dashed border-neutral-300 p-3">
         <h5>Category-Specific Fields ({category.name})</h5>
         {category.customFieldSchema.map((field) => {
           const value = specificFieldsState[field.key] ?? '';
@@ -77,7 +111,7 @@ export function AssetsTab({
         <h3>Manage Documents for Asset: {managingAssetDocs.name} ({managingAssetDocs.assetTag})</h3>
         <button type="button" onClick={() => setManagingAssetDocs(null)}>Back to Assets</button>
         
-        <div style={{ marginTop: '20px' }}>
+        <div className="mt-5">
           <h4>Uploaded Documents</h4>
           {(!managingAssetDocs.documentUrls || managingAssetDocs.documentUrls.length === 0) ? (
             <p>No documents uploaded yet.</p>
@@ -86,7 +120,7 @@ export function AssetsTab({
               {managingAssetDocs.documentUrls.map((docUrl, i) => {
                 const filename = docUrl.substring(docUrl.lastIndexOf('/') + 1);
                 return (
-                  <li key={i} style={{ marginBottom: '10px' }}>
+                  <li key={i} className="mb-2">
                     <a href={docUrl} target="_blank" rel="noreferrer">{filename}</a>{' '}
                     <button type="button" onClick={() => handleDeleteDocument(managingAssetDocs.id, docUrl)}>Delete</button>
                   </li>
@@ -254,7 +288,72 @@ export function AssetsTab({
 
       <hr />
       <h4>Assets Directory</h4>
-      <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+
+      {/* ── Search & Filter Bar ──────────────────────────────── */}
+      <div className="search-filter-bar">
+        <input
+          type="search"
+          placeholder="🔍  Search by name, tag, serial, location…"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{ flex: '2 1 14rem' }}
+        />
+
+        <div className="filter-group">
+          <label htmlFor="asset-status-filter">Status</label>
+          <select
+            id="asset-status-filter"
+            value={filterStatus}
+            onChange={e => setFilterStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="available">Available</option>
+            <option value="allocated">Allocated</option>
+            <option value="under_maintenance">Under Maintenance</option>
+            <option value="retired">Retired</option>
+            <option value="disposed">Disposed</option>
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="asset-category-filter">Category</label>
+          <select
+            id="asset-category-filter"
+            value={filterCategory}
+            onChange={e => setFilterCategory(e.target.value)}
+          >
+            <option value="">All</option>
+            {categories.map(cat => (
+              <option key={cat.id} value={String(cat.id)}>{cat.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="filter-group">
+          <label htmlFor="asset-bookable-filter">Type</label>
+          <select
+            id="asset-bookable-filter"
+            value={filterBookable}
+            onChange={e => setFilterBookable(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="standard">Standard</option>
+            <option value="bookable">Bookable</option>
+          </select>
+        </div>
+
+        {hasActiveFilters && (
+          <button type="button" className="clear-filters-btn" onClick={clearFilters}>
+            ✕ Clear
+          </button>
+        )}
+
+        <span className="result-count-badge">
+          {filteredAssets.length} / {assets.length} records
+        </span>
+      </div>
+
+      <table className="table-with-search">
         <thead>
           <tr>
             <th>Tag</th>
@@ -269,10 +368,10 @@ export function AssetsTab({
           </tr>
         </thead>
         <tbody>
-          {assets.length === 0 ? (
-            <tr><td colSpan="9">No assets found.</td></tr>
+          {filteredAssets.length === 0 ? (
+            <tr><td colSpan="9">{hasActiveFilters ? 'No assets match the current filters.' : 'No assets found.'}</td></tr>
           ) : (
-            assets.map(asset => (
+            filteredAssets.map(asset => (
               <tr key={asset.id}>
                 <td>{asset.assetTag}</td>
                 <td>{asset.name}</td>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 
 export function AllocationsTab({
   allocations,
@@ -12,9 +12,61 @@ export function AllocationsTab({
   handleApproveTransfer,
   handleRejectTransfer
 }) {
+  // ── Allocations search & filter ────────────────────────────
+  const [allocSearch, setAllocSearch] = useState('');
+  const [allocStatus, setAllocStatus] = useState('');
+
+  const filteredAllocations = useMemo(() => {
+    const q = allocSearch.toLowerCase();
+    return allocations.filter(alloc => {
+      const matchesSearch =
+        !q ||
+        alloc.asset?.name?.toLowerCase().includes(q) ||
+        alloc.asset?.assetTag?.toLowerCase().includes(q) ||
+        alloc.allocatedToEmployee?.name?.toLowerCase().includes(q) ||
+        alloc.allocatedToDepartment?.name?.toLowerCase().includes(q);
+      const matchesStatus = !allocStatus || alloc.status === allocStatus;
+      return matchesSearch && matchesStatus;
+    });
+  }, [allocations, allocSearch, allocStatus]);
+
+  const hasAllocFilters = allocSearch || allocStatus;
+
+  function clearAllocFilters() {
+    setAllocSearch('');
+    setAllocStatus('');
+  }
+
+  // ── Transfers search & filter ──────────────────────────────
+  const [transferSearch, setTransferSearch] = useState('');
+  const [transferStatus, setTransferStatus] = useState('');
+
+  const filteredTransfers = useMemo(() => {
+    const q = transferSearch.toLowerCase();
+    return transfers.filter(req => {
+      const matchesSearch =
+        !q ||
+        req.asset?.name?.toLowerCase().includes(q) ||
+        req.asset?.assetTag?.toLowerCase().includes(q) ||
+        req.requestedBy?.name?.toLowerCase().includes(q) ||
+        req.requestedToEmployee?.name?.toLowerCase().includes(q) ||
+        req.requestedToDepartment?.name?.toLowerCase().includes(q) ||
+        req.reason?.toLowerCase().includes(q);
+      const matchesStatus = !transferStatus || req.status === transferStatus;
+      return matchesSearch && matchesStatus;
+    });
+  }, [transfers, transferSearch, transferStatus]);
+
+  const hasTransferFilters = transferSearch || transferStatus;
+
+  function clearTransferFilters() {
+    setTransferSearch('');
+    setTransferStatus('');
+  }
+
   return (
     <div>
-      <h3>Resource Allocation & Transfers</h3>
+      <h3>Resource Allocation &amp; Transfers</h3>
 
       <form onSubmit={handleCreateAllocation}>
         <h4>Allocate Available Resource (Direct)</h4>
@@ -72,7 +124,43 @@ export function AllocationsTab({
 
       <hr />
       <h4>Active Allocations Directory</h4>
-      <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+
+      {/* ── Allocations Search & Filter Bar ─────────────────── */}
+      <div className="search-filter-bar">
+        <input
+          type="search"
+          placeholder="🔍  Search by asset, employee or department…"
+          value={allocSearch}
+          onChange={e => setAllocSearch(e.target.value)}
+          style={{ flex: '2 1 14rem' }}
+        />
+
+        <div className="filter-group">
+          <label htmlFor="alloc-status-filter">Status</label>
+          <select
+            id="alloc-status-filter"
+            value={allocStatus}
+            onChange={e => setAllocStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="returned">Returned</option>
+            <option value="transferred">Transferred</option>
+          </select>
+        </div>
+
+        {hasAllocFilters && (
+          <button type="button" className="clear-filters-btn" onClick={clearAllocFilters}>
+            ✕ Clear
+          </button>
+        )}
+
+        <span className="result-count-badge">
+          {filteredAllocations.length} / {allocations.length} records
+        </span>
+      </div>
+
+      <table className="table-with-search">
         <thead>
           <tr>
             <th>Asset</th>
@@ -84,10 +172,10 @@ export function AllocationsTab({
           </tr>
         </thead>
         <tbody>
-          {allocations.length === 0 ? (
-            <tr><td colSpan="6">No resource allocations found.</td></tr>
+          {filteredAllocations.length === 0 ? (
+            <tr><td colSpan="6">{hasAllocFilters ? 'No allocations match the current filters.' : 'No resource allocations found.'}</td></tr>
           ) : (
-            allocations.map(alloc => (
+            filteredAllocations.map(alloc => (
               <tr key={alloc.id}>
                 <td>{alloc.asset?.name} ({alloc.asset?.assetTag})</td>
                 <td>
@@ -109,7 +197,44 @@ export function AllocationsTab({
 
       <hr />
       <h4>Transfer Requests Directory</h4>
-      <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse', marginTop: '10px' }}>
+
+      {/* ── Transfers Search & Filter Bar ────────────────────── */}
+      <div className="search-filter-bar">
+        <input
+          type="search"
+          placeholder="🔍  Search by asset, requester or reason…"
+          value={transferSearch}
+          onChange={e => setTransferSearch(e.target.value)}
+          style={{ flex: '2 1 14rem' }}
+        />
+
+        <div className="filter-group">
+          <label htmlFor="transfer-status-filter">Status</label>
+          <select
+            id="transfer-status-filter"
+            value={transferStatus}
+            onChange={e => setTransferStatus(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="requested">Requested</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+            <option value="completed">Completed</option>
+          </select>
+        </div>
+
+        {hasTransferFilters && (
+          <button type="button" className="clear-filters-btn" onClick={clearTransferFilters}>
+            ✕ Clear
+          </button>
+        )}
+
+        <span className="result-count-badge">
+          {filteredTransfers.length} / {transfers.length} records
+        </span>
+      </div>
+
+      <table className="table-with-search">
         <thead>
           <tr>
             <th>Asset</th>
@@ -122,10 +247,10 @@ export function AllocationsTab({
           </tr>
         </thead>
         <tbody>
-          {transfers.length === 0 ? (
-            <tr><td colSpan="7">No transfer requests found.</td></tr>
+          {filteredTransfers.length === 0 ? (
+            <tr><td colSpan="7">{hasTransferFilters ? 'No transfers match the current filters.' : 'No transfer requests found.'}</td></tr>
           ) : (
-            transfers.map(req => (
+            filteredTransfers.map(req => (
               <tr key={req.id}>
                 <td>{req.asset?.name} ({req.asset?.assetTag})</td>
                 <td>

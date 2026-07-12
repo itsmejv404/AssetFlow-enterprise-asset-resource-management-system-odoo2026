@@ -8,8 +8,72 @@ import { AllocationsTab } from './components/AllocationsTab'
 import { MaintenanceTab } from './components/MaintenanceTab'
 import { AuditsTab } from './components/AuditsTab'
 import { LogsTab } from './components/LogsTab'
+import { Button } from './components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card'
+import { Input } from './components/ui/input'
+import { Skeleton } from './components/ui/skeleton'
 import { apiRequest } from './lib/api'
 import { clearAuth, getStoredAuth, ROLE_ROUTES, roleToLabel, roleToRoute, saveAuth } from './lib/auth'
+
+function AppShell({ title, eyebrow = 'AssetFlow', session, onLogout, navItems = [], activeTab, onTabChange, children, hubLink = true }) {
+  return (
+    <div className="app-shell">
+      <header className="top-nav">
+        <div className="top-nav-brand">
+          <span className="top-nav-eyebrow">{eyebrow}</span>
+          <h1 className="top-nav-title">{title}</h1>
+        </div>
+        <div className="top-nav-user">
+          <div className="top-nav-user-info hidden sm:flex">
+            <p className="top-nav-user-name">{session.user.name}</p>
+            <p className="top-nav-user-email">{session.user.email}</p>
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={onLogout}>Sign out</Button>
+        </div>
+      </header>
+
+      <div className="shell-layout">
+        <aside className="shell-sidebar">
+          <div className="shell-sidebar-workspace">
+            <span className="shell-sidebar-workspace-label">Workspace</span>
+            <span className="shell-sidebar-workspace-role">{roleToLabel(session.user.role)}</span>
+          </div>
+
+          <nav aria-label="Dashboard navigation">
+            <ul className="nav-list">
+              {navItems.map((item) => (
+                <li key={item.value}>
+                  <Button
+                    type="button"
+                    variant={activeTab === item.value ? 'default' : 'ghost'}
+                    onClick={() => onTabChange(item.value)}
+                  >
+                    {item.label}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          {hubLink ? (
+            <div className="hub-link-section">
+              <Link to="/dashboard">← Dashboard hub</Link>
+            </div>
+          ) : null}
+        </aside>
+
+        <main className="shell-content">
+          <div className="page-stack">{children}</div>
+        </main>
+      </div>
+    </div>
+  )
+}
+
+function StatusMessage({ type, children }) {
+  if (!children) return null
+  return <p className={type === 'error' ? 'status-error' : 'status-success'}>{children}</p>
+}
 
 function LoginPage({ session, onLogin }) {
   const navigate = useNavigate()
@@ -46,50 +110,51 @@ function LoginPage({ session, onLogin }) {
   }
 
   return (
-    <main>
-      <h1>AssetFlow Login</h1>
-      <form onSubmit={handleSubmit}>
-        <p>
-          <label>
-            Email
-            <br />
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
-          </label>
-        </p>
-        <p>
-          <label>
-            Password
-            <br />
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-            />
-          </label>
-        </p>
-        {error ? <p>{error}</p> : null}
-        <button type="submit" disabled={busy}>
-          {busy ? 'Signing in...' : 'Sign in'}
-        </button>
-      </form>
-      <section>
-        <h2>Dashboard routes</h2>
-        <ul>
-          <li><Link to="/admin/dashboard">Admin</Link></li>
-          <li><Link to="/asset-manager/dashboard">Asset Manager</Link></li>
-          <li><Link to="/department-head/dashboard">Department Head</Link></li>
-          <li><Link to="/employee/dashboard">Employee</Link></li>
-        </ul>
-      </section>
-      <p>
-        <Link to="/forgot-password">Forgot password?</Link>
-      </p>
+    <main className="auth-page">
+      <Card className="auth-card">
+        <CardHeader className="p-0 pb-5">
+          <div className="auth-logo">AF</div>
+          <CardTitle className="text-xl font-bold tracking-tight">Welcome back</CardTitle>
+          <CardDescription className="text-sm">Sign in to manage assets, allocations, and audits.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <form onSubmit={handleSubmit} style={{ border: 'none', boxShadow: 'none', padding: 0, margin: 0, background: 'transparent' }}>
+            <label>
+              Email address
+              <Input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                placeholder="you@company.com"
+              />
+            </label>
+            <label>
+              Password
+              <Input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                placeholder="••••••••"
+              />
+            </label>
+            <StatusMessage type="error">{error}</StatusMessage>
+            <Button type="submit" disabled={busy} className="w-full mt-1">
+              {busy ? 'Signing in…' : 'Sign in'}
+            </Button>
+          </form>
+          <div className="mt-5 grid gap-3 border-t border-violet-100 pt-5 text-sm">
+            <Link to="/forgot-password" className="text-violet-600 hover:text-violet-800">Forgot password?</Link>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Link to="/admin/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Admin</Link>
+              <Link to="/asset-manager/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Asset Manager</Link>
+              <Link to="/department-head/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Department Head</Link>
+              <Link to="/employee/dashboard" className="text-xs text-violet-500 hover:text-violet-700">Employee</Link>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </main>
   )
 }
@@ -121,30 +186,36 @@ function ForgotPasswordPage() {
   }
 
   return (
-    <main>
-      <h1>Forgot Password</h1>
-      <form onSubmit={handleSubmit}>
-        <p>
-          <label>
-            Email
-            <br />
-            <input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              autoComplete="email"
-            />
-          </label>
-        </p>
-        {error ? <p>{error}</p> : null}
-        {message ? <p>{message}</p> : null}
-        <button type="submit" disabled={busy}>
-          {busy ? 'Sending...' : 'Send reset email'}
-        </button>
-      </form>
-      <p>
-        <Link to="/">Back to login</Link>
-      </p>
+    <main className="auth-page">
+      <Card className="auth-card">
+        <CardHeader className="p-0 pb-5">
+          <div className="auth-logo">AF</div>
+          <CardTitle className="text-xl font-bold tracking-tight">Reset your password</CardTitle>
+          <CardDescription>Enter your email and we&apos;ll send a reset link.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <form onSubmit={handleSubmit} style={{ border: 'none', boxShadow: 'none', padding: 0, margin: 0, background: 'transparent' }}>
+            <label>
+              Email address
+              <Input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                autoComplete="email"
+                placeholder="you@company.com"
+              />
+            </label>
+            <StatusMessage type="error">{error}</StatusMessage>
+            <StatusMessage type="success">{message}</StatusMessage>
+            <Button type="submit" disabled={busy} className="w-full mt-1">
+              {busy ? 'Sending…' : 'Send reset email'}
+            </Button>
+          </form>
+          <p className="mt-5 border-t border-violet-100 pt-5 text-sm">
+            <Link to="/" className="text-violet-600 hover:text-violet-800">← Back to login</Link>
+          </p>
+        </CardContent>
+      </Card>
     </main>
   )
 }
@@ -1031,68 +1102,27 @@ function AdminDashboardView({ session, onLogout }) {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: 'sans-serif' }}>
-      {}
-      <div style={{ width: '260px', borderRight: '1px solid #ccc', padding: '15px', boxSizing: 'border-box' }}>
-        <h2>AssetFlow Admin</h2>
-        <p><strong>User:</strong> {session.user.name}</p>
-        <p><strong>Email:</strong> {session.user.email}</p>
-        <button type="button" onClick={onLogout}>Logout</button>
-        <hr />
-        <h3>Navigation</h3>
-        <ul style={{ listStyleType: 'none', padding: 0 }}>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('departments')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'departments' ? 'bold' : 'normal' }}>
-              Departments
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('categories')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'categories' ? 'bold' : 'normal' }}>
-              Asset Categories
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('employees')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'employees' ? 'bold' : 'normal' }}>
-              Employees
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('assets')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'assets' ? 'bold' : 'normal' }}>
-              Assets
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('allocations')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'allocations' ? 'bold' : 'normal' }}>
-              Resource Allocations & Transfers
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('maintenance')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'maintenance' ? 'bold' : 'normal' }}>
-              Maintenance Management
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('audits')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'audits' ? 'bold' : 'normal' }}>
-              Audit Cycles
-            </button>
-          </li>
-          {session.user.role === 'admin' && (
-            <li style={{ marginBottom: '10px' }}>
-              <button type="button" onClick={() => setTab('logs')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'logs' ? 'bold' : 'normal' }}>
-                Audit Logs
-              </button>
-            </li>
-          )}
-        </ul>
-        <hr />
-        <p><Link to="/dashboard">Back to Dashboard Hub</Link></p>
-      </div>
+    <AppShell
+      title="Asset Management"
+      eyebrow="Admin Console"
+      session={session}
+      onLogout={onLogout}
+      activeTab={tab}
+      onTabChange={setTab}
+      navItems={[
+        { value: 'departments', label: 'Departments' },
+        { value: 'categories', label: 'Asset Categories' },
+        { value: 'employees', label: 'Employees' },
+        { value: 'assets', label: 'Assets' },
+        { value: 'allocations', label: 'Allocations & Transfers' },
+        { value: 'maintenance', label: 'Maintenance' },
+        { value: 'audits', label: 'Audit Cycles' },
+        ...(session.user.role === 'admin' ? [{ value: 'logs', label: 'Audit Logs' }] : []),
+      ]}
+    >
+        <StatusMessage type="error">{error ? `Error: ${error}` : ''}</StatusMessage>
+        <StatusMessage type="success">{success}</StatusMessage>
 
-      {}
-      <div style={{ flex: 1, padding: '20px', boxSizing: 'border-box' }}>
-        {error ? <p style={{ color: 'red' }}><strong>Error:</strong> {error}</p> : null}
-        {success ? <p style={{ color: 'green' }}><strong>Success:</strong> {success}</p> : null}
-        
         {tab === 'departments' && (
           <DepartmentsTab
             departments={departments}
@@ -1114,6 +1144,7 @@ function AdminDashboardView({ session, onLogout }) {
             catForm={catForm}
             setCatForm={setCatForm}
             schemaFields={schemaFields}
+            setSchemaFields={setSchemaFields}
             addSchemaField={addSchemaField}
             removeSchemaField={removeSchemaField}
             updateSchemaField={updateSchemaField}
@@ -1222,8 +1253,7 @@ function AdminDashboardView({ session, onLogout }) {
           />
         )}
         {tab === 'logs' && <LogsTab logs={logs} />}
-      </div>
-    </div>
+    </AppShell>
   )
 }
 
@@ -1295,30 +1325,28 @@ function DashboardPage({ session, onLogout, role }) {
   }
 
   return (
-    <main>
-      <header>
-        <h1>{roleToLabel(role)}</h1>
-        <p>{session.user.name}</p>
-        <p>{session.user.email}</p>
-        <button type="button" onClick={onLogout}>
-          Logout
-        </button>
-      </header>
-      <nav>
-        <p>Routes</p>
-        <ul>
-          <li><Link to="/admin/dashboard">Admin Dashboard</Link></li>
-          <li><Link to="/asset-manager/dashboard">Asset Manager Dashboard</Link></li>
-          <li><Link to="/department-head/dashboard">Department Head Dashboard</Link></li>
-          <li><Link to="/employee/dashboard">Employee Dashboard</Link></li>
-        </ul>
-      </nav>
-      <section>
-        <h2>Protected data</h2>
-        {error ? <p>{error}</p> : null}
-        {dashboardData ? <pre>{JSON.stringify(dashboardData, null, 2)}</pre> : <p>Loading...</p>}
-      </section>
-    </main>
+    <AppShell
+      title={roleToLabel(role)}
+      session={session}
+      onLogout={onLogout}
+      activeTab="overview"
+      onTabChange={() => {}}
+      hubLink={false}
+      navItems={[
+        { value: 'overview', label: 'Overview' },
+      ]}
+    >
+      <Card>
+        <CardHeader>
+          <CardTitle>Protected data</CardTitle>
+          <CardDescription>Raw dashboard payload for this role.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <StatusMessage type="error">{error}</StatusMessage>
+          {dashboardData ? <pre>{JSON.stringify(dashboardData, null, 2)}</pre> : <Skeleton className="h-40 w-full" />}
+        </CardContent>
+      </Card>
+    </AppShell>
   )
 }
 
@@ -1649,67 +1677,57 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
   }
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <div style={{ width: '250px', padding: '20px', boxSizing: 'border-box' }}>
-        <h3>Dashboard Hub</h3>
-        <p>Logged in as:<br /><strong>{session.user.name}</strong><br />({roleToLabel(session.user.role)})</p>
-        <hr />
-        <ul style={{ listStyleType: 'none', padding: 0 }}>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('dashboard')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'dashboard' ? 'bold' : 'normal' }}>
-              KPI Overview
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('assets')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'assets' ? 'bold' : 'normal' }}>
-              Department Assets
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('allocations')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'allocations' ? 'bold' : 'normal' }}>
-              Allocations & Transfers
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('maintenance')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'maintenance' ? 'bold' : 'normal' }}>
-              Maintenance
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('audits')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'audits' ? 'bold' : 'normal' }}>
-              Audits
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('bookings')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'bookings' ? 'bold' : 'normal' }}>
-              Bookings
-            </button>
-          </li>
-        </ul>
-        <hr />
-        <p><button type="button" onClick={onLogout} style={{ width: '100%' }}>Logout</button></p>
-      </div>
-
-      <div style={{ flex: 1, padding: '20px', boxSizing: 'border-box' }}>
-        {error && <p style={{ color: 'red' }}><strong>Error:</strong> {error}</p>}
-        {success && <p style={{ color: 'green' }}><strong>Success:</strong> {success}</p>}
+    <AppShell
+      title="Department Workspace"
+      eyebrow="Dashboard Hub"
+      session={session}
+      onLogout={onLogout}
+      activeTab={tab}
+      onTabChange={setTab}
+      hubLink={false}
+      navItems={[
+        { value: 'dashboard', label: 'KPI Overview' },
+        { value: 'assets', label: 'Department Assets' },
+        { value: 'allocations', label: 'Allocations & Transfers' },
+        { value: 'maintenance', label: 'Maintenance' },
+        { value: 'audits', label: 'Audits' },
+        { value: 'bookings', label: 'Bookings' },
+      ]}
+    >
+        <StatusMessage type="error">{error ? `Error: ${error}` : ''}</StatusMessage>
+        <StatusMessage type="success">{success}</StatusMessage>
 
         {tab === 'dashboard' && dashboardData && (
-          <div>
-            <h3>Department KPI Metrics ({dashboardData.department})</h3>
-            <ul>
-              <li>Total Assets in Department: <strong>{dashboardData.kpis.assetsCount}</strong></li>
-              <li>Active Allocations: <strong>{dashboardData.kpis.allocationsCount}</strong></li>
-              <li>Pending Transfers: <strong>{dashboardData.kpis.pendingTransfersCount}</strong></li>
-              <li>Pending Maintenance Requests: <strong>{dashboardData.kpis.pendingMaintenanceCount}</strong></li>
-            </ul>
+          <div className="dash-section">
+            <div className="section-heading">
+              <h3>Department KPI Metrics</h3>
+              <span className="text-sm text-violet-500 font-medium">{dashboardData.department}</span>
+            </div>
+            <div className="kpi-grid">
+              <div className="kpi-card">
+                <span className="kpi-card-label">Total Assets</span>
+                <span className="kpi-card-value accent">{dashboardData.kpis.assetsCount}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Active Allocations</span>
+                <span className="kpi-card-value">{dashboardData.kpis.allocationsCount}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Pending Transfers</span>
+                <span className="kpi-card-value">{dashboardData.kpis.pendingTransfersCount}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Pending Maintenance</span>
+                <span className="kpi-card-value">{dashboardData.kpis.pendingMaintenanceCount}</span>
+              </div>
+            </div>
           </div>
         )}
 
         {tab === 'assets' && (
           <div>
             <h3>Department Assets</h3>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -1795,7 +1813,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
 
             <hr />
             <h4>Department Active Allocations</h4>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Asset</th>
@@ -1830,7 +1848,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
 
             <hr />
             <h4>Department Transfer Requests</h4>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Asset</th>
@@ -1929,7 +1947,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
 
             <hr />
             <h4>Maintenance Directory</h4>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Asset</th>
@@ -1963,7 +1981,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
         {tab === 'audits' && (
           <div>
             <h3>Audit Cycles</h3>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -2000,9 +2018,9 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
             </table>
 
             {selectedCycleId && (
-              <div style={{ marginTop: '20px' }}>
+              <div className="mt-5">
                 <h4>Audit Records for Cycle</h4>
-                <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table>
                   <thead>
                     <tr>
                       <th>Asset</th>
@@ -2036,7 +2054,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
             )}
 
             {auditRecordForm.recordId && (
-              <form onSubmit={handleSubmitAuditRecord} style={{ marginTop: '20px' }}>
+              <form onSubmit={handleSubmitAuditRecord} className="mt-5">
                 <h4>Submit Verification Result</h4>
                 <p>
                   <label>Result:<br />
@@ -2110,7 +2128,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
 
             <hr />
             <h4>Department & Personal Bookings</h4>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Resource</th>
@@ -2146,8 +2164,7 @@ function DepartmentHeadDashboardView({ session, onLogout }) {
             </table>
           </div>
         )}
-      </div>
-    </div>
+    </AppShell>
   )
 }
 
@@ -2426,77 +2443,61 @@ function EmployeeDashboardView({ session, onLogout }) {
   })
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <div style={{ width: '250px', padding: '20px', boxSizing: 'border-box' }}>
-        <h3>Dashboard Hub</h3>
-        <p>Logged in as:<br /><strong>{session.user.name}</strong><br />({roleToLabel(session.user.role)})</p>
-        <hr />
-        <ul style={{ listStyleType: 'none', padding: 0 }}>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('dashboard')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'dashboard' ? 'bold' : 'normal' }}>
-              KPI Overview
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('my-assets')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'my-assets' ? 'bold' : 'normal' }}>
-              My Assets
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('registry')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'registry' ? 'bold' : 'normal' }}>
-              Asset Registry
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('bookings')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'bookings' ? 'bold' : 'normal' }}>
-              Book Resource
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('transfers')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'transfers' ? 'bold' : 'normal' }}>
-              Initiate Transfer
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('maintenance')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'maintenance' ? 'bold' : 'normal' }}>
-              Maintenance
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('audits')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'audits' ? 'bold' : 'normal' }}>
-              Audits
-            </button>
-          </li>
-          <li style={{ marginBottom: '10px' }}>
-            <button type="button" onClick={() => setTab('notifications')} style={{ width: '100%', textAlign: 'left', fontWeight: tab === 'notifications' ? 'bold' : 'normal' }}>
-              Notifications {dashboardData?.kpis?.unreadNotificationsCount > 0 ? `(${dashboardData.kpis.unreadNotificationsCount})` : ''}
-            </button>
-          </li>
-        </ul>
-        <hr />
-        <p><button type="button" onClick={onLogout} style={{ width: '100%' }}>Logout</button></p>
-      </div>
-
-      <div style={{ flex: 1, padding: '20px', boxSizing: 'border-box' }}>
-        {error && <p style={{ color: 'red' }}><strong>Error:</strong> {error}</p>}
-        {success && <p style={{ color: 'green' }}><strong>Success:</strong> {success}</p>}
+    <AppShell
+      title="Employee Workspace"
+      eyebrow="Dashboard Hub"
+      session={session}
+      onLogout={onLogout}
+      activeTab={tab}
+      onTabChange={setTab}
+      hubLink={false}
+      navItems={[
+        { value: 'dashboard', label: 'KPI Overview' },
+        { value: 'my-assets', label: 'My Assets' },
+        { value: 'registry', label: 'Asset Registry' },
+        { value: 'bookings', label: 'Book Resource' },
+        { value: 'transfers', label: 'Initiate Transfer' },
+        { value: 'maintenance', label: 'Maintenance' },
+        { value: 'audits', label: 'Audits' },
+        {
+          value: 'notifications',
+          label: `Notifications${dashboardData?.kpis?.unreadNotificationsCount > 0 ? ` (${dashboardData.kpis.unreadNotificationsCount})` : ''}`,
+        },
+      ]}
+    >
+        <StatusMessage type="error">{error ? `Error: ${error}` : ''}</StatusMessage>
+        <StatusMessage type="success">{success}</StatusMessage>
 
         {tab === 'dashboard' && dashboardData && (
-          <div>
-            <h3>Welcome back, {session.user.name}!</h3>
-            <ul>
-              <li>My Allocated Assets: <strong>{dashboardData.kpis.assetsCount}</strong></li>
-              <li>Upcoming Bookings: <strong>{dashboardData.kpis.bookingsCount}</strong></li>
-              <li>My Pending Maintenance: <strong>{dashboardData.kpis.pendingMaintenanceCount}</strong></li>
-              <li>Unread Notifications: <strong>{dashboardData.kpis.unreadNotificationsCount}</strong></li>
-            </ul>
+          <div className="dash-section">
+            <div className="section-heading">
+              <h3>Welcome back, {session.user.name}!</h3>
+            </div>
+            <div className="kpi-grid">
+              <div className="kpi-card">
+                <span className="kpi-card-label">My Assets</span>
+                <span className="kpi-card-value accent">{dashboardData.kpis.assetsCount}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Upcoming Bookings</span>
+                <span className="kpi-card-value">{dashboardData.kpis.bookingsCount}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Pending Maintenance</span>
+                <span className="kpi-card-value">{dashboardData.kpis.pendingMaintenanceCount}</span>
+              </div>
+              <div className="kpi-card">
+                <span className="kpi-card-label">Unread Notifications</span>
+                <span className="kpi-card-value">{dashboardData.kpis.unreadNotificationsCount > 0 ? dashboardData.kpis.unreadNotificationsCount : '—'}</span>
+              </div>
+            </div>
           </div>
         )}
 
         {tab === 'my-assets' && (
           <div>
             <h3>My Allocated Assets</h3>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -2531,7 +2532,7 @@ function EmployeeDashboardView({ session, onLogout }) {
             </table>
 
             {selectedAsset && assetHistory && (
-              <div style={{ marginTop: '20px', border: '1px solid #ccc', padding: '15px' }}>
+              <div className="mt-5 rounded-lg border border-violet-200 p-4">
                 <h4>Asset Details & History: {selectedAsset.name} ({selectedAsset.assetTag})</h4>
                 <p><strong>Condition:</strong> {selectedAsset.condition || 'Unknown'}</p>
                 <p><strong>Location:</strong> {selectedAsset.location || 'N/A'}</p>
@@ -2573,10 +2574,10 @@ function EmployeeDashboardView({ session, onLogout }) {
                 placeholder="Search by name, tag, or category..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                style={{ width: '100%', padding: '8px', boxSizing: 'border-box', marginBottom: '10px' }}
+                className="mb-2"
               />
             </p>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -2661,7 +2662,7 @@ function EmployeeDashboardView({ session, onLogout }) {
 
             <hr />
             <h4>My Bookings</h4>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Resource</th>
@@ -2741,7 +2742,7 @@ function EmployeeDashboardView({ session, onLogout }) {
 
             <hr />
             <h4>My Transfer History / Pending Requests</h4>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Asset</th>
@@ -2815,7 +2816,7 @@ function EmployeeDashboardView({ session, onLogout }) {
 
             <hr />
             <h4>My Maintenance Requests History</h4>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Asset</th>
@@ -2845,7 +2846,7 @@ function EmployeeDashboardView({ session, onLogout }) {
         {tab === 'audits' && (
           <div>
             <h3>Audit Cycles Participation</h3>
-            <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table>
               <thead>
                 <tr>
                   <th>Name</th>
@@ -2876,9 +2877,9 @@ function EmployeeDashboardView({ session, onLogout }) {
             </table>
 
             {selectedCycleId && (
-              <div style={{ marginTop: '20px' }}>
+              <div className="mt-5">
                 <h4>Audit Records for Cycle</h4>
-                <table border="1" cellPadding="5" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <table>
                   <thead>
                     <tr>
                       <th>Asset</th>
@@ -2912,7 +2913,7 @@ function EmployeeDashboardView({ session, onLogout }) {
             )}
 
             {auditRecordForm.recordId && (
-              <form onSubmit={handleSubmitAuditRecord} style={{ marginTop: '20px' }}>
+              <form onSubmit={handleSubmitAuditRecord} className="mt-5">
                 <h4>Submit Verification Result</h4>
                 <p>
                   <label>Result:<br />
@@ -2945,21 +2946,13 @@ function EmployeeDashboardView({ session, onLogout }) {
         {tab === 'notifications' && (
           <div>
             <h3>My Notifications</h3>
-            <ul style={{ listStyleType: 'none', padding: 0 }}>
+            <ul className="grid list-none gap-3 p-0">
               {notifications.length === 0 ? <li>No notifications found.</li> : (
                 notifications.map(notif => (
-                  <li key={notif.id} style={{
-                    padding: '10px',
-                    border: '1px solid #eee',
-                    marginBottom: '10px',
-                    backgroundColor: notif.isRead ? '#fcfcfc' : '#fff9f9',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                  }}>
+                  <li key={notif.id} className="flex items-center justify-between rounded-lg border border-violet-200 bg-white p-3">
                     <div>
-                      <p style={{ margin: 0, fontWeight: notif.isRead ? 'normal' : 'bold' }}>{notif.message}</p>
-                      <small style={{ color: '#777' }}>{new Date(notif.createdAt).toLocaleString()}</small>
+                      <p className={notif.isRead ? 'm-0 text-sm font-normal text-violet-700' : 'm-0 text-sm font-semibold text-violet-950'}>{notif.message}</p>
+                      <small className="text-xs text-violet-500">{new Date(notif.createdAt).toLocaleString()}</small>
                     </div>
                     {!notif.isRead && (
                       <button type="button" onClick={() => handleMarkAsRead(notif.id)}>Mark Read</button>
@@ -2970,8 +2963,7 @@ function EmployeeDashboardView({ session, onLogout }) {
             </ul>
           </div>
         )}
-      </div>
-    </div>
+    </AppShell>
   )
 }
 
