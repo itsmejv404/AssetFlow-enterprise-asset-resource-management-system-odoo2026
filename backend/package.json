@@ -1,0 +1,20 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "Asset Flow Enterprise Asset & Resource Management System",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itsmejv404/AssetFlow-enterprise-asset-resource-management-system-odoo2026/settings/access?guidance_"
+  },
+  "license": "ISC",
+  "author": "Jayavighnesh B K",
+  "type": "commonjs",
+  "main": "serv\u001b[3~\u001b[3~\u001b[3~\u001b",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
+  }
+}
