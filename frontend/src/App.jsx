@@ -15,7 +15,6 @@ import { Skeleton } from './components/ui/skeleton'
 import { apiRequest } from './lib/api'
 import { clearAuth, getStoredAuth, ROLE_ROUTES, roleToLabel, roleToRoute, saveAuth } from './lib/auth'
 import { Sun, Moon } from 'lucide-react'
-
 export function ThemeToggle() {
   const [isDark, setIsDark] = useState(() => {
     return document.documentElement.classList.contains('dark')
@@ -40,6 +39,7 @@ export function ThemeToggle() {
       size="icon-sm"
       onClick={toggleTheme}
       aria-label="Toggle theme"
+      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
       className="rounded-full"
     >
       {isDark ? (
