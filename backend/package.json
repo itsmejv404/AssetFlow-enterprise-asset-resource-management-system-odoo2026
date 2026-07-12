@@ -1,20 +1,38 @@
 {
-  "name": "backend",
+  "name": "assetflow-api",
   "version": "1.0.0",
-  "description": "Asset Flow Enterprise Asset & Resource Management System",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/itsmejv404/AssetFlow-enterprise-asset-resource-management-system-odoo2026/settings/access?guidance_"
-  },
+  "description": "AssetFlow Enterprise Asset & Resource Management System API",
   "license": "ISC",
   "author": "Jayavighnesh B K",
   "type": "commonjs",
-  "main": "serv\u001b[3~\u001b[3~\u001b[3~\u001b",
+  "main": "dist/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "migration:generate": "node --require ts-node/register ./node_modules/typeorm/cli.js migration:generate src/migrations/InitialSchema -d src/config/data-source.ts",
+    "migration:run": "node --require ts-node/register ./node_modules/typeorm/cli.js migration:run -d src/config/data-source.ts",
+    "migration:revert": "node --require ts-node/register ./node_modules/typeorm/cli.js migration:revert -d src/config/data-source.ts",
+    "seed": "ts-node src/seed.ts"
   },
   "dependencies": {
+    "bcrypt": "^6.0.0",
     "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^7.0.5",
+    "pg": "^8.22.0",
+    "reflect-metadata": "^0.2.2",
+    "typeorm": "^0.3.25"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/express": "^5.0.2",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/nodemailer": "^6.4.17",
+    "@types/node": "^24.1.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.2"
   }
 }

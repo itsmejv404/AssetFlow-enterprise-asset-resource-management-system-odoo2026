@@ -2,10 +2,11 @@
 logs
 *.log
 npm-debug.log*
+dist
 
 node_modules
 *.local
-
+seed.ts
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -18,3 +19,5 @@ node_modules
 *.sw?
 
 .env
+
+# Logs
