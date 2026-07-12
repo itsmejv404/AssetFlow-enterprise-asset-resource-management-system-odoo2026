@@ -3,6 +3,38 @@
 /* ── Google Fonts ─────────────────────────────────────────── */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
+@theme {
+  --color-violet-50: var(--muted);
+  --color-violet-100: var(--accent);
+  --color-violet-200: var(--border);
+  --color-violet-300: var(--border-hover);
+  --color-violet-500: var(--muted-foreground);
+  --color-violet-600: var(--primary);
+  --color-violet-700: var(--primary);
+  --color-violet-800: var(--primary-hover);
+  --color-violet-900: var(--foreground);
+  --color-violet-950: var(--foreground);
+
+  --color-rose-50: var(--destructive-subtle);
+  --color-rose-200: var(--destructive-border);
+  --color-rose-300: var(--destructive-border);
+  --color-rose-700: var(--destructive);
+  --color-rose-800: var(--destructive);
+  --color-rose-900: var(--destructive-hover);
+
+  --color-emerald-50: var(--success-bg);
+  --color-emerald-200: var(--success-border);
+  --color-emerald-700: var(--success);
+
+  --color-amber-50: var(--warning-bg);
+  --color-amber-200: var(--warning-border);
+  --color-amber-700: var(--warning);
+
+  --color-blue-50: var(--info-bg);
+  --color-blue-200: var(--info-border);
+  --color-blue-700: var(--info);
+}
+
 /* ── Design Tokens ─────────────────────────────────────────── */
 :root {
   color-scheme: light;
@@ -71,6 +103,81 @@
   --transition-fast: 150ms ease;
   --transition-base: 200ms ease;
   --transition-slow: 300ms ease;
+
+  --auth-gradient: linear-gradient(135deg, #faf5ff 0%, #fafaf9 50%, #f3f0ff 100%);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Core palette — rich dark violet/slate theme */
+  --background: #0b0719; /* very dark rich violet/black */
+  --foreground: #f3f0ff; /* light violet/white */
+  --card: #150f29;       /* deep dark violet card background */
+  --card-foreground: #f3f0ff;
+  --popover: #150f29;
+  --popover-foreground: #f3f0ff;
+  
+  /* Primary - still violet, slightly brighter for contrast in dark mode */
+  --primary: #8b5cf6;
+  --primary-hover: #a78bfa;
+  --primary-active: #7c3aed;
+  --primary-foreground: #ffffff;
+  
+  /* Secondary - deep muted violet */
+  --secondary: #241842;
+  --secondary-foreground: #ddd6fe;
+  
+  /* Muted */
+  --muted: #1c1236;
+  --muted-foreground: #a78bfa;
+  
+  /* Accent */
+  --accent: #2e1d54;
+  --accent-foreground: #ddd6fe;
+
+  /* Destructive */
+  --destructive: #f43f5e;
+  --destructive-hover: #fb7185;
+  --destructive-active: #e11d48;
+  --destructive-foreground: #ffffff;
+  --destructive-subtle: #4c0519;
+  --destructive-border: #881337;
+
+  /* Status */
+  --success: #34d399;
+  --success-bg: #064e3b;
+  --success-border: #047857;
+  
+  --warning: #fbbf24;
+  --warning-bg: #78350f;
+  --warning-border: #b45309;
+  
+  --info: #60a5fa;
+  --info-bg: #1e3a8a;
+  --info-border: #1d4ed8;
+
+  /* Borders and inputs */
+  --border: #2e1d54;
+  --border-hover: #482f80;
+  --input: #2e1d54;
+  --input-focus: #8b5cf6;
+  --ring: #8b5cf6;
+  --ring-offset: #0b0719;
+
+  --auth-gradient: linear-gradient(135deg, #1b0d2d 0%, #0b0719 50%, #150a26 100%);
+}
+
+.dark .bg-white {
+  background-color: var(--card) !important;
+}
+
+.dark .bg-violet-50\/40 {
+  background-color: color-mix(in srgb, var(--muted) 40%, transparent) !important;
+}
+
+.dark .bg-violet-950\/40 {
+  background-color: rgba(0, 0, 0, 0.6) !important;
 }
 
 /* ── Reset & Base ──────────────────────────────────────────── */
@@ -155,7 +262,7 @@ button {
   gap: 0.5rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--card);
   color: var(--foreground);
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
@@ -202,7 +309,7 @@ textarea {
   width: 100%;
   border: 1.5px solid var(--input);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--card);
   color: var(--foreground);
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
@@ -389,7 +496,7 @@ pre {
   align-items: center;
   justify-content: space-between;
   border-bottom: 1.5px solid var(--border);
-  background: rgba(250, 250, 249, 0.92);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
   padding: 0 1.75rem;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -505,7 +612,7 @@ pre {
 /* ── Sidebar Navigation ─────────────────────────────────────── */
 .nav-list {
   display: grid;
-  gap: 2px;
+  gap: 6px;
   margin: 0.5rem 0;
   padding: 0;
   list-style: none;
@@ -569,7 +676,7 @@ pre {
   min-height: 100vh;
   place-items: center;
   padding: 2rem 1.5rem;
-  background: linear-gradient(135deg, #faf5ff 0%, #fafaf9 50%, #f3f0ff 100%);
+  background: var(--auth-gradient);
 }
 
 .auth-card {
@@ -611,7 +718,7 @@ pre {
   gap: 0.625rem;
   padding: 0.875rem 1rem;
   margin-bottom: 0;
-  background: linear-gradient(to bottom, #f8f5ff, var(--muted));
+  background: linear-gradient(to bottom, var(--secondary), var(--muted));
   border: 1.5px solid var(--border);
   border-bottom: 1px solid var(--border);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
@@ -629,7 +736,7 @@ pre {
   font-size: 0.8125rem;
   border: 1.5px solid var(--input);
   border-radius: var(--radius);
-  background: #ffffff;
+  background: var(--card);
   color: var(--foreground);
   transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
@@ -682,7 +789,7 @@ pre {
   min-height: 2rem;
   padding: 0.25rem 0.7rem;
   font-size: 0.75rem;
-  background: #ffffff;
+  background: var(--card);
   border: 1.5px solid var(--border);
   border-radius: var(--radius);
   color: var(--muted-foreground);

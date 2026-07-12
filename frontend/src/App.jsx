@@ -14,6 +14,42 @@ import { Input } from './components/ui/input'
 import { Skeleton } from './components/ui/skeleton'
 import { apiRequest } from './lib/api'
 import { clearAuth, getStoredAuth, ROLE_ROUTES, roleToLabel, roleToRoute, saveAuth } from './lib/auth'
+import { Sun, Moon } from 'lucide-react'
+
+export function ThemeToggle() {
+  const [isDark, setIsDark] = useState(() => {
+    return document.documentElement.classList.contains('dark')
+  })
+
+  const toggleTheme = () => {
+    if (isDark) {
+      document.documentElement.classList.remove('dark')
+      localStorage.setItem('theme', 'light')
+      setIsDark(false)
+    } else {
+      document.documentElement.classList.add('dark')
+      localStorage.setItem('theme', 'dark')
+      setIsDark(true)
+    }
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      onClick={toggleTheme}
+      aria-label="Toggle theme"
+      className="rounded-full"
+    >
+      {isDark ? (
+        <Sun className="h-4 w-4 text-amber-400" />
+      ) : (
+        <Moon className="h-4 w-4 text-violet-700" />
+      )}
+    </Button>
+  )
+}
 
 function AppShell({ title, eyebrow = 'AssetFlow', session, onLogout, navItems = [], activeTab, onTabChange, children, hubLink = true }) {
   return (
@@ -31,6 +67,7 @@ function AppShell({ title, eyebrow = 'AssetFlow', session, onLogout, navItems = 
             <p className="top-nav-user-name">{session.user.name}</p>
             <p className="top-nav-user-email">{session.user.email}</p>
           </div>
+          <ThemeToggle />
           <Button type="button" variant="outline" size="sm" onClick={onLogout}>Sign out</Button>
         </div>
       </header>
@@ -503,7 +540,10 @@ function LoginPage({ session, onLogin }) {
   }
 
   return (
-    <main className="auth-page">
+    <main className="auth-page" style={{ position: 'relative' }}>
+      <div style={{ position: 'absolute', top: '1rem', right: '1rem' }}>
+        <ThemeToggle />
+      </div>
       <Card className="auth-card">
         <CardHeader className="p-0 pb-5">
           <img src="/assetflowLogo.png" alt="AssetFlow Logo" className="auth-logo" style={{ background: 'none', boxShadow: 'none', objectFit: 'contain' }} />
@@ -575,7 +615,10 @@ function ForgotPasswordPage() {
   }
 
   return (
-    <main className="auth-page">
+    <main className="auth-page" style={{ position: 'relative' }}>
+      <div style={{ position: 'absolute', top: '1rem', right: '1rem' }}>
+        <ThemeToggle />
+      </div>
       <Card className="auth-card">
         <CardHeader className="p-0 pb-5">
           <img src="/assetflowLogo.png" alt="AssetFlow Logo" className="auth-logo" style={{ background: 'none', boxShadow: 'none', objectFit: 'contain' }} />
