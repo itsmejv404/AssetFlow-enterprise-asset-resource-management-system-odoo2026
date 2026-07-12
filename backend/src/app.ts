@@ -1,7 +1,9 @@
 import express, { Request, Response } from 'express';
+import path from 'node:path';
 import { AppDataSource } from './config/data-source';
 import { authRouter } from './routes/auth.routes';
 import { dashboardRouter } from './routes/dashboard.routes';
+import { adminRouter } from './routes/admin.routes';
 
 export const app = express();
 
@@ -9,6 +11,8 @@ app.use(express.json());
 
 app.use('/api/auth', authRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/admin', adminRouter);
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 app.get('/', (_req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'assetflow-api' });
