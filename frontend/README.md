@@ -1,16 +1,40 @@
-# React + Vite
+# AssetFlow Frontend Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+This directory contains the Vite + React frontend dashboard client for **AssetFlow**.
 
-Currently, two official plugins are available:
+## 🔌 System Architecture & Database Design
+The complete system architecture, entity-relationship diagrams (ERD), and PostgreSQL tables schema details can be found in the root **[System README.md](../README.md#database-design-architecture)**.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 🛠️ Features & Stack
+* **Vite + React 19** (compiled using modern ES modules)
+* **Tailwind CSS v4** (CSS-first configuration with a custom `@theme` registry)
+* **Radix UI Primitives** (Dialog, Dropdown Menu, Select, Tabs, Tooltip)
+* **Lucide Icons**
+* **Responsive Layouts** (full-height sticky sidebars on desktop, auto-collapsing list views on mobile viewports)
+* **Dynamic Color Theming** (flash-free toggle system supporting dark/light mode saved to `localStorage` with system default fallback)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+---
 
-## Expanding the Oxlint configuration
+## 📦 Developer Commands
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+### 1. Install dependencies
+```bash
+npm install
+```
+
+### 2. Run the development server
+```bash
+npm run dev
+```
+
+### 3. Run the linter
+```bash
+npm run lint
+```
+
+### 4. Build for production
+```bash
+npm run build
+```
